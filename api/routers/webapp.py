@@ -1,4 +1,4 @@
-"""웹앱 대시보드용 4개 액션 API."""
+"""웹앱 대시보드용 액션 API."""
 
 from __future__ import annotations
 
@@ -41,6 +41,21 @@ class DLPredictReq(BaseModel):
     forward_days: int = Field(default=5, ge=1, le=20)
     threshold: float = Field(default=0.01, ge=0.001, le=0.1)
     epochs: int = Field(default=20, ge=5, le=200)
+
+
+class AnalysisReq(BaseModel):
+    ticker: str = Field(default="005930")
+    source: str = Field(default="naver", description="naver | yfinance")
+    pages: int = Field(default=80, ge=5, le=120)
+    period: str = Field(default="5y")
+    seq_len: int = Field(default=20, ge=5, le=60)
+
+
+class MultiHeadReq(BaseModel):
+    tickers: list[str] = Field(default=["005930", "000660", "035420", "051910"])
+    source: str = Field(default="naver", description="naver | yfinance")
+    pages: int = Field(default=80, ge=5, le=120)
+    period: str = Field(default="5y")
 
 
 def _load_ohlcv(ticker: str, source: str, pages: int, period: str):
@@ -179,3 +194,94 @@ def dl_predict(req: DLPredictReq):
         "signal": signal,
         "probabilities": proba,
     }
+
+
+@router.post("/timeseries")
+def timeseries(req: AnalysisReq):
+    try:
+        from trading.webapp_analytics import timeseries_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return timeseries_report(req.ticker, req.source, req.pages, req.period)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/sequence-lstm")
+def sequence_lstm(req: AnalysisReq):
+    try:
+        from trading.webapp_analytics import sequence_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return sequence_report(req.ticker, req.source, req.pages, req.period)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/attention-core")
+def attention_core(req: AnalysisReq):
+    try:
+        from trading.webapp_analytics import attention_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return attention_report(req.ticker, req.source, req.pages, req.period, req.seq_len)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/transformer")
+def transformer(req: AnalysisReq):
+    try:
+        from trading.webapp_analytics import transformer_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return transformer_report(req.ticker, req.source, req.pages, req.period, req.seq_len)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/patchtst")
+def patchtst(req: AnalysisReq):
+    try:
+        from trading.webapp_analytics import patchtst_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return patchtst_report(req.ticker, req.source, req.pages, req.period)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/multihead")
+def multihead(req: MultiHeadReq):
+    try:
+        from trading.webapp_analytics import multihead_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return multihead_report(req.tickers, req.source, req.pages, req.period)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/backtest")
+def backtest(req: AnalysisReq):
+    try:
+        from trading.webapp_analytics import backtest_report
+    except ImportError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        return backtest_report(req.ticker, req.source, req.pages, req.period)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

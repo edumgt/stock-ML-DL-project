@@ -5,96 +5,245 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>국내 주가 ML·DL 웹앱</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link rel="stylesheet" as="style" crossorigin href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css" />
   <style>
     body { font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 min-h-screen">
-  <main class="max-w-6xl mx-auto px-5 py-10">
-    <header class="mb-8">
-      <p class="text-indigo-300 text-sm">국내 증시 데이터 기반 시계열 프로젝트</p>
-      <h1 class="text-3xl font-bold mt-1">주가 지수 머신러닝 · 딥러닝 웹앱</h1>
-      <p class="text-slate-300 mt-3 text-sm">네이버 크롤링 → 군집화 → ML 예측 → DL 예측을 버튼 4개로 실행합니다.</p>
-      <a href="/docs" target="_blank" class="inline-block mt-4 text-xs px-3 py-2 rounded bg-indigo-600 hover:bg-indigo-500">API 문서 열기</a>
+<body class="min-h-screen bg-slate-950 text-slate-100">
+  <main class="mx-auto max-w-7xl px-4 py-8 md:px-6">
+    <header class="border-b border-slate-800 pb-6">
+      <p class="text-sm text-indigo-300">Stock ML·DL Playground</p>
+      <h1 class="mt-1 text-3xl font-semibold">국내 주가 시계열 웹앱</h1>
+      <p class="mt-3 max-w-4xl text-sm leading-6 text-slate-300">
+        현재 repo의 운영 기능을 한 화면에서 실행하고 결과를 확인할 수 있게 정리한 대시보드입니다.
+      </p>
+      <div class="mt-4 flex flex-wrap gap-2 text-xs text-slate-300">
+        <a href="/docs" target="_blank" class="rounded-lg border border-slate-700 px-3 py-2 hover:bg-slate-900">API 문서</a>
+        <span class="rounded-lg border border-slate-800 px-3 py-2">시계열 분석</span>
+        <span class="rounded-lg border border-slate-800 px-3 py-2">LSTM 스타일</span>
+        <span class="rounded-lg border border-slate-800 px-3 py-2">Transformer</span>
+        <span class="rounded-lg border border-slate-800 px-3 py-2">PatchTST</span>
+      </div>
     </header>
 
-    <section class="bg-slate-900/80 border border-slate-700 rounded-xl p-4 md:p-5 mb-6">
-      <h2 class="font-semibold mb-4">공통 입력</h2>
-      <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-        <label class="text-sm">대표 종목코드
-          <input id="ticker" class="mt-1 w-full rounded bg-slate-800 border border-slate-600 px-3 py-2" value="005930" />
-        </label>
-        <label class="text-sm">페이지 수
-          <input id="pages" type="number" min="1" max="80" class="mt-1 w-full rounded bg-slate-800 border border-slate-600 px-3 py-2" value="10" />
-        </label>
-        <label class="text-sm">시장
-          <select id="market" class="mt-1 w-full rounded bg-slate-800 border border-slate-600 px-3 py-2">
-            <option value="kospi">KOSPI</option>
-            <option value="kosdaq">KOSDAQ</option>
-          </select>
-        </label>
-        <label class="text-sm">군집 종목(쉼표 구분)
-          <input id="tickers" class="mt-1 w-full rounded bg-slate-800 border border-slate-600 px-3 py-2" value="005930,000660,035420,051910,068270" />
-        </label>
-      </div>
-    </section>
+    <section class="mt-6 grid gap-6 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <aside class="space-y-6">
+        <section class="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+          <h2 class="text-sm font-semibold text-slate-100">공통 입력</h2>
+          <div class="mt-4 grid gap-3">
+            <label class="text-sm text-slate-300">대표 종목코드
+              <input id="ticker" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="005930" />
+            </label>
+            <label class="text-sm text-slate-300">비교 종목코드
+              <input id="tickers" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="005930,000660,035420,051910" />
+            </label>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="text-sm text-slate-300">소스
+                <select id="source" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2">
+                  <option value="naver">naver</option>
+                  <option value="yfinance">yfinance</option>
+                </select>
+              </label>
+              <label class="text-sm text-slate-300">시장
+                <select id="market" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2">
+                  <option value="kospi">KOSPI</option>
+                  <option value="kosdaq">KOSDAQ</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="text-sm text-slate-300">페이지 수
+                <input id="pages" type="number" min="5" max="120" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="80" />
+              </label>
+              <label class="text-sm text-slate-300">기간
+                <input id="period" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="5y" />
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-3">
+              <label class="text-sm text-slate-300">시퀀스 길이
+                <input id="seq_len" type="number" min="5" max="60" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="20" />
+              </label>
+              <label class="text-sm text-slate-300">군집 수
+                <input id="n_clusters" type="number" min="2" max="8" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="3" />
+              </label>
+            </div>
+          </div>
+        </section>
 
-    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-      <button id="btn-crawl" class="h-28 rounded-2xl bg-blue-600 hover:bg-blue-500 transition text-left px-6 py-4 shadow-lg shadow-blue-900/30">
-        <p class="text-xs text-blue-100">STEP 1</p>
-        <p class="text-2xl font-bold mt-1">데이터 수집</p>
-        <p class="text-sm text-blue-100 mt-1">네이버 금융 크롤링 실행</p>
-      </button>
-      <button id="btn-cluster" class="h-28 rounded-2xl bg-emerald-600 hover:bg-emerald-500 transition text-left px-6 py-4 shadow-lg shadow-emerald-900/30">
-        <p class="text-xs text-emerald-100">STEP 2</p>
-        <p class="text-2xl font-bold mt-1">종목 군집화</p>
-        <p class="text-sm text-emerald-100 mt-1">특성 기반 군집 및 해석</p>
-      </button>
-      <button id="btn-ml" class="h-28 rounded-2xl bg-violet-600 hover:bg-violet-500 transition text-left px-6 py-4 shadow-lg shadow-violet-900/30">
-        <p class="text-xs text-violet-100">STEP 3</p>
-        <p class="text-2xl font-bold mt-1">ML 방향 예측</p>
-        <p class="text-sm text-violet-100 mt-1">학습 + 신호 예측 + 확률</p>
-      </button>
-      <button id="btn-dl" class="h-28 rounded-2xl bg-rose-600 hover:bg-rose-500 transition text-left px-6 py-4 shadow-lg shadow-rose-900/30">
-        <p class="text-xs text-rose-100">STEP 4</p>
-        <p class="text-2xl font-bold mt-1">DL 방향 예측</p>
-        <p class="text-sm text-rose-100 mt-1">LSTM/MLP 학습 + 예측</p>
-      </button>
-    </section>
+        <section class="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+          <h2 class="text-sm font-semibold text-slate-100">기존 운영 액션</h2>
+          <div class="mt-4 grid gap-2">
+            <button data-action="crawl" class="action-btn rounded-lg bg-blue-600 px-4 py-3 text-left hover:bg-blue-500">
+              <div class="text-xs text-blue-100">기존 WebApp</div>
+              <div class="mt-1 font-semibold">데이터 수집</div>
+            </button>
+            <button data-action="cluster" class="action-btn rounded-lg bg-emerald-600 px-4 py-3 text-left hover:bg-emerald-500">
+              <div class="text-xs text-emerald-100">기존 WebApp</div>
+              <div class="mt-1 font-semibold">종목 군집화</div>
+            </button>
+            <button data-action="ml" class="action-btn rounded-lg bg-violet-600 px-4 py-3 text-left hover:bg-violet-500">
+              <div class="text-xs text-violet-100">기존 WebApp</div>
+              <div class="mt-1 font-semibold">ML 방향 예측</div>
+            </button>
+            <button data-action="dl" class="action-btn rounded-lg bg-rose-600 px-4 py-3 text-left hover:bg-rose-500">
+              <div class="text-xs text-rose-100">기존 WebApp</div>
+              <div class="mt-1 font-semibold">DL 방향 예측</div>
+            </button>
+          </div>
+        </section>
+      </aside>
 
-    <section class="bg-slate-900/80 border border-slate-700 rounded-xl p-4 md:p-5">
-      <div class="flex items-center justify-between mb-3">
-        <h2 class="font-semibold">실행 결과</h2>
-        <span id="status" class="text-xs px-2 py-1 rounded bg-slate-700">대기 중</span>
-      </div>
-      <pre id="result" class="text-xs bg-black/40 rounded p-4 overflow-auto min-h-[260px]">버튼을 눌러 실행하세요.</pre>
+      <section class="space-y-6">
+        <div class="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 id="result-title" class="text-lg font-semibold">실행 결과</h2>
+              <p id="result-subtitle" class="mt-1 text-sm text-slate-400">왼쪽 액션을 선택하면 요약과 차트가 이쪽에 나타납니다.</p>
+            </div>
+            <span id="status" class="rounded-lg bg-slate-800 px-3 py-2 text-xs text-slate-200">대기 중</span>
+          </div>
+        </div>
+
+        <div id="summary-grid" class="grid gap-3 md:grid-cols-2 xl:grid-cols-4"></div>
+
+        <div id="notes-box" class="hidden rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+          <h3 class="text-sm font-semibold text-slate-100">핵심 메모</h3>
+          <ul id="notes-list" class="mt-3 space-y-2 text-sm text-slate-300"></ul>
+        </div>
+
+        <div id="charts-grid" class="grid gap-4 xl:grid-cols-2"></div>
+
+        <div class="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+          <h3 class="text-sm font-semibold text-slate-100">원본 응답</h3>
+          <pre id="result" class="mt-3 min-h-[240px] overflow-auto rounded-lg bg-black/40 p-4 text-xs leading-5 text-slate-200">버튼을 눌러 실행하세요.</pre>
+        </div>
+      </section>
     </section>
   </main>
 
   <script>
     const statusEl = document.getElementById('status');
     const resultEl = document.getElementById('result');
+    const summaryGrid = document.getElementById('summary-grid');
+    const chartsGrid = document.getElementById('charts-grid');
+    const notesBox = document.getElementById('notes-box');
+    const notesList = document.getElementById('notes-list');
+    const resultTitle = document.getElementById('result-title');
+    const resultSubtitle = document.getElementById('result-subtitle');
+    let activeCharts = [];
 
     const getCommon = () => ({
       ticker: document.getElementById('ticker').value.trim(),
-      pages: Number(document.getElementById('pages').value || 10),
-      market: document.getElementById('market').value,
       tickers: document.getElementById('tickers').value.split(',').map(v => v.trim()).filter(Boolean),
+      source: document.getElementById('source').value,
+      market: document.getElementById('market').value,
+      pages: Number(document.getElementById('pages').value || 80),
+      period: document.getElementById('period').value.trim() || '5y',
+      seq_len: Number(document.getElementById('seq_len').value || 20),
+      n_clusters: Number(document.getElementById('n_clusters').value || 3),
     });
 
     const setStatus = (text, ok = null) => {
       statusEl.textContent = text;
-      statusEl.className = 'text-xs px-2 py-1 rounded ' + (ok === null
-        ? 'bg-slate-700'
+      statusEl.className = 'rounded-lg px-3 py-2 text-xs ' + (ok === null
+        ? 'bg-slate-800 text-slate-200'
         : ok
-          ? 'bg-emerald-700'
-          : 'bg-rose-700');
+          ? 'bg-emerald-700 text-white'
+          : 'bg-rose-700 text-white');
+    };
+
+    const clearVisuals = () => {
+      summaryGrid.innerHTML = '';
+      chartsGrid.innerHTML = '';
+      notesList.innerHTML = '';
+      notesBox.classList.add('hidden');
+      activeCharts.forEach(chart => chart.destroy());
+      activeCharts = [];
+    };
+
+    const renderSummary = (items = []) => {
+      summaryGrid.innerHTML = '';
+      items.forEach(item => {
+        const card = document.createElement('div');
+        card.className = 'rounded-lg border border-slate-800 bg-slate-900/70 p-4';
+        card.innerHTML = `
+          <div class="text-xs text-slate-400">${item.label}</div>
+          <div class="mt-2 text-lg font-semibold text-slate-100">${item.value}</div>
+        `;
+        summaryGrid.appendChild(card);
+      });
+    };
+
+    const renderNotes = (notes = []) => {
+      notesList.innerHTML = '';
+      if (!notes.length) {
+        notesBox.classList.add('hidden');
+        return;
+      }
+      notes.forEach(note => {
+        const li = document.createElement('li');
+        li.textContent = note;
+        notesList.appendChild(li);
+      });
+      notesBox.classList.remove('hidden');
+    };
+
+    const datasetDefaults = (chartType, ds) => ({
+      label: ds.label,
+      data: ds.data,
+      borderColor: ds.borderColor || ds.backgroundColor || '#60a5fa',
+      backgroundColor: ds.backgroundColor || ds.borderColor || '#60a5fa',
+      fill: false,
+      tension: chartType === 'line' ? 0.25 : 0,
+      borderWidth: 2,
+    });
+
+    const renderCharts = (charts = []) => {
+      chartsGrid.innerHTML = '';
+      activeCharts.forEach(chart => chart.destroy());
+      activeCharts = [];
+      charts.forEach((chartConfig, index) => {
+        const wrap = document.createElement('div');
+        wrap.className = charts.length === 1
+          ? 'rounded-lg border border-slate-800 bg-slate-900/70 p-4'
+          : 'rounded-lg border border-slate-800 bg-slate-900/70 p-4';
+        wrap.innerHTML = `
+          <div class="mb-3 text-sm font-semibold text-slate-100">${chartConfig.title || `차트 ${index + 1}`}</div>
+          <canvas id="chart-${index}" height="180"></canvas>
+        `;
+        chartsGrid.appendChild(wrap);
+        const canvas = wrap.querySelector('canvas');
+        const chart = new Chart(canvas, {
+          type: chartConfig.type || 'line',
+          data: {
+            labels: chartConfig.labels || [],
+            datasets: (chartConfig.datasets || []).map(ds => datasetDefaults(chartConfig.type || 'line', ds)),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              x: { ticks: { color: '#cbd5e1', maxRotation: 0, autoSkip: true }, grid: { color: 'rgba(148,163,184,0.12)' } },
+              y: { ticks: { color: '#cbd5e1' }, grid: { color: 'rgba(148,163,184,0.12)' } },
+            },
+            plugins: {
+              legend: { labels: { color: '#e2e8f0' } },
+            },
+          },
+        });
+        activeCharts.push(chart);
+      });
     };
 
     async function runAction(name, url, payload) {
       setStatus(`${name} 실행 중...`, null);
+      resultTitle.textContent = name;
+      resultSubtitle.textContent = url;
       resultEl.textContent = `${name} 요청 중...`;
+      clearVisuals();
+
       try {
         const res = await fetch(url, {
           method: 'POST',
@@ -105,56 +254,71 @@
         if (!res.ok) throw new Error(JSON.stringify(data, null, 2));
         setStatus(`${name} 완료`, true);
         resultEl.textContent = JSON.stringify(data, null, 2);
+        renderSummary(data.summary || []);
+        renderNotes(data.notes || []);
+        renderCharts(data.charts || []);
+        if (!data.summary) {
+          renderSummary([
+            { label: 'Ticker', value: data.ticker || payload.ticker || '-' },
+            { label: '상태', value: '완료' },
+          ]);
+        }
       } catch (err) {
         setStatus(`${name} 실패`, false);
         resultEl.textContent = String(err.message || err);
       }
     }
 
-    document.getElementById('btn-crawl').addEventListener('click', () => {
-      const c = getCommon();
-      runAction('데이터 수집', '/api/webapp/crawl', {
-        ticker: c.ticker,
-        market: c.market,
-        pages: c.pages,
-      });
-    });
+    const actions = {
+      crawl: () => {
+        const c = getCommon();
+        return runAction('데이터 수집', '/api/webapp/crawl', {
+          ticker: c.ticker,
+          market: c.market,
+          pages: Math.min(c.pages, 20),
+        });
+      },
+      cluster: () => {
+        const c = getCommon();
+        return runAction('종목 군집화', '/api/webapp/cluster', {
+          tickers: c.tickers,
+          pages: Math.min(c.pages, 20),
+          n_clusters: c.n_clusters,
+          method: 'kmeans',
+        });
+      },
+      ml: () => {
+        const c = getCommon();
+        return runAction('ML 방향 예측', '/api/webapp/ml-predict', {
+          ticker: c.ticker,
+          source: c.source,
+          pages: Math.max(c.pages, 30),
+          period: c.period,
+          model_type: 'rf',
+          forward_days: 5,
+          threshold: 0.01,
+        });
+      },
+      dl: () => {
+        const c = getCommon();
+        return runAction('DL 방향 예측', '/api/webapp/dl-predict', {
+          ticker: c.ticker,
+          source: c.source,
+          pages: Math.max(c.pages, 30),
+          period: c.period,
+          model_type: 'auto',
+          seq_len: c.seq_len,
+          forward_days: 5,
+          threshold: 0.01,
+          epochs: 20,
+        });
+      },
+    };
 
-    document.getElementById('btn-cluster').addEventListener('click', () => {
-      const c = getCommon();
-      runAction('종목 군집화', '/api/webapp/cluster', {
-        tickers: c.tickers,
-        pages: c.pages,
-        n_clusters: 3,
-        method: 'kmeans',
-      });
-    });
-
-    document.getElementById('btn-ml').addEventListener('click', () => {
-      const c = getCommon();
-      runAction('ML 방향 예측', '/api/webapp/ml-predict', {
-        ticker: c.ticker,
-        source: 'naver',
-        pages: Math.max(c.pages, 30),
-        period: '3y',
-        model_type: 'rf',
-        forward_days: 5,
-        threshold: 0.01,
-      });
-    });
-
-    document.getElementById('btn-dl').addEventListener('click', () => {
-      const c = getCommon();
-      runAction('DL 방향 예측', '/api/webapp/dl-predict', {
-        ticker: c.ticker,
-        source: 'naver',
-        pages: Math.max(c.pages, 30),
-        period: '3y',
-        model_type: 'auto',
-        seq_len: 20,
-        forward_days: 5,
-        threshold: 0.01,
-        epochs: 20,
+    document.querySelectorAll('.action-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        actions[action]?.();
       });
     });
   </script>
