@@ -57,22 +57,21 @@ def run_clustering(req: ClusterReq):
     crawler = NaverFinanceCrawler()
 
     ticker_dfs: dict = {}
-    errors: list = []
+    failed_tickers: list = []
     for t in req.tickers:
         try:
             df = crawler.get_daily_ohlcv(t, pages=req.pages)
             if not df.empty:
                 ticker_dfs[t] = df
             else:
-                errors.append(f"{t}: 데이터 없음")
-        except Exception as exc:
-            errors.append(f"{t}: {exc}")
+                failed_tickers.append(f"{t}: 데이터 없음")
+        except Exception:
+            failed_tickers.append(f"{t}: 수집 실패")
 
     if len(ticker_dfs) < req.n_clusters:
         raise HTTPException(
             status_code=400,
-            detail=f"유효 종목 수({len(ticker_dfs)})가 군집 수({req.n_clusters})보다 적습니다. "
-                   f"오류: {errors}",
+            detail=f"유효 종목 수({len(ticker_dfs)})가 군집 수({req.n_clusters})보다 적습니다.",
         )
 
     try:
@@ -112,7 +111,7 @@ def run_clustering(req: ClusterReq):
         "features":      feature_records,
         "summary":       summary_records,
         "pca":           pca_data,
-        "errors":        errors,
+        "errors":        failed_tickers,
     }
 
 

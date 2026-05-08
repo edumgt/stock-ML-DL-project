@@ -83,9 +83,9 @@ def _build_features(df: pd.DataFrame) -> pd.DataFrame:
     out["MACD_S"] = out["MACD"].ewm(span=9, adjust=False).mean()
 
     delta = close.diff()
-    g = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
-    l = (-delta).clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
-    out["RSI"] = 100 - 100 / (1 + g / (l + 1e-9))
+    gain_avg = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+    loss_avg = (-delta).clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+    out["RSI"] = 100 - 100 / (1 + gain_avg / (loss_avg + 1e-9))
 
     bb_m = close.rolling(20).mean()
     bb_s = close.rolling(20).std()

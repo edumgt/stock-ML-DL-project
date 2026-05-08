@@ -107,7 +107,8 @@ def _extract_features(ticker: str, df: pd.DataFrame) -> dict:
     rsi_mean = float(rsi.mean())
 
     # 20일 모멘텀
-    momentum_20 = float(close.iloc[-1] / close.iloc[-min(21, len(close))] - 1) if len(close) > 20 else 0.0
+    lookback = min(21, len(close))
+    momentum_20 = float(close.iloc[-1] / close.iloc[-lookback] - 1) if len(close) > 20 else 0.0
 
     # 거래량 변화율
     if len(volume) > 20 and volume.sum() > 0:

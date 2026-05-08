@@ -76,7 +76,7 @@ def get_stock_info(ticker: str):
         raise HTTPException(status_code=503, detail=str(e))
 
     if "error" in info:
-        raise HTTPException(status_code=500, detail=info["error"])
+        raise HTTPException(status_code=500, detail="종목 정보 조회에 실패했습니다.")
     return info
 
 
