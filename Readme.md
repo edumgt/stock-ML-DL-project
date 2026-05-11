@@ -1,5 +1,10 @@
 # 주가 지수 데이터 활용 머신러닝 · 딥러닝 웹앱
 
+### 선수 - https://github.com/edumgt/investment-analysis
+
+
+
+
 국내 증시 데이터를 활용해 아래 4단계를 웹앱 버튼으로 실행하는 FastAPI + Vanilla JS 솔루션입니다.
 
 1. **데이터 수집**: 네이버 금융 크롤링으로 종목 OHLCV/시장 데이터 수집
