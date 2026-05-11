@@ -2,7 +2,7 @@
 
 ### 선수 - https://github.com/edumgt/investment-analysis
 
-
+### 선수 - https://github.com/edumgt/python-ai-basic-lab
 
 
 국내 증시 데이터를 활용해 아래 4단계를 웹앱 버튼으로 실행하는 FastAPI + Vanilla JS 솔루션입니다.
