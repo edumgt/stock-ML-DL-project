@@ -1,0 +1,876 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Trading Workstation</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" />
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin />
+  <link rel="stylesheet" crossorigin="anonymous" href="https://cdn.jsdelivr.net/npm/pretendard/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+  <script>
+    tailwind = {
+      config: {
+        theme: {
+          extend: {
+            colors: {
+              ink: "#0b1220",
+              shell: "#111827",
+              panel: "#131a2a",
+              line: "#26324b",
+              mint: "#00c076",
+              danger: "#f23645",
+              sky: "#2f81f7",
+              amber: "#f59e0b",
+            },
+            boxShadow: {
+              board: "0 24px 60px rgba(2, 6, 23, 0.52)",
+            },
+          },
+        },
+      },
+    };
+  </script>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0a0f19;
+      --panel: rgba(19, 26, 42, 0.88);
+      --line: rgba(84, 104, 140, 0.34);
+      --muted: #90a1c0;
+      --text: #e5ebf7;
+      --mint: #00c076;
+      --danger: #f23645;
+      --sky: #2f81f7;
+      --amber: #f59e0b;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      font-family: "Pretendard Variable", "Pretendard", "Noto Sans KR", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(47, 129, 247, 0.18), transparent 28%),
+        radial-gradient(circle at top right, rgba(0, 192, 118, 0.12), transparent 24%),
+        linear-gradient(180deg, #070b13, #0b1220 52%, #070b13);
+      min-height: 100vh;
+      word-break: keep-all;
+    }
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      background-image:
+        linear-gradient(rgba(38, 50, 75, 0.22) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(38, 50, 75, 0.22) 1px, transparent 1px);
+      background-size: 44px 44px;
+      mask-image: linear-gradient(180deg, rgba(255,255,255,0.34), transparent 80%);
+    }
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      box-shadow: 0 24px 60px rgba(2, 6, 23, 0.5);
+      backdrop-filter: blur(12px);
+    }
+    .micro-label {
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: #6d86ad;
+      font-size: 0.72rem;
+      font-weight: 700;
+    }
+    .data-field {
+      width: 100%;
+      border-radius: 14px;
+      border: 1px solid rgba(73, 92, 126, 0.78);
+      background: rgba(7, 12, 22, 0.86);
+      color: var(--text);
+      padding: 0.8rem 0.95rem;
+      outline: none;
+    }
+    .data-field:focus {
+      border-color: rgba(47, 129, 247, 0.9);
+      box-shadow: 0 0 0 1px rgba(47, 129, 247, 0.45);
+    }
+    .action-btn {
+      border: 1px solid rgba(84, 104, 140, 0.36);
+      background: linear-gradient(180deg, rgba(27, 37, 58, 0.96), rgba(16, 22, 36, 0.96));
+      transition: transform 0.16s ease, border-color 0.16s ease, filter 0.16s ease;
+    }
+    .action-btn:hover {
+      transform: translateY(-1px);
+      border-color: rgba(47, 129, 247, 0.7);
+      filter: brightness(1.04);
+    }
+    .action-btn:disabled {
+      opacity: 0.52;
+      cursor: not-allowed;
+      transform: none;
+    }
+    .status-dot {
+      width: 0.6rem;
+      height: 0.6rem;
+      border-radius: 9999px;
+      display: inline-block;
+    }
+    .status-dot.ok { background: var(--mint); box-shadow: 0 0 18px rgba(0, 192, 118, 0.5); }
+    .status-dot.warn { background: var(--amber); box-shadow: 0 0 18px rgba(245, 158, 11, 0.45); }
+    .status-dot.fail { background: var(--danger); box-shadow: 0 0 18px rgba(242, 54, 69, 0.42); }
+    .summary-card {
+      border: 1px solid rgba(84, 104, 140, 0.28);
+      background: linear-gradient(180deg, rgba(19, 26, 42, 0.98), rgba(11, 18, 32, 0.98));
+      border-radius: 18px;
+      padding: 1rem;
+    }
+    .table-shell {
+      border: 1px solid rgba(84, 104, 140, 0.28);
+      border-radius: 18px;
+      overflow: hidden;
+      background: rgba(10, 15, 25, 0.78);
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      padding: 0.8rem 0.95rem;
+      border-bottom: 1px solid rgba(84, 104, 140, 0.18);
+      text-align: left;
+      font-size: 0.92rem;
+    }
+    th { color: #96abd1; font-weight: 600; background: rgba(19, 26, 42, 0.95); }
+    tr:last-child td { border-bottom: 0; }
+    .log-item + .log-item { border-top: 1px solid rgba(84, 104, 140, 0.18); }
+    @media (max-width: 1024px) {
+      .workspace-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main class="mx-auto max-w-[1600px] px-4 py-5 md:px-6">
+    <header class="panel relative overflow-hidden px-5 py-5 md:px-7">
+      <div class="absolute inset-y-0 right-0 w-80 bg-gradient-to-l from-sky/15 to-transparent"></div>
+      <div class="relative flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-4xl">
+          <div class="micro-label">Django Web / Flask API / Airflow Ops</div>
+          <div class="mt-3 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <h1 class="text-3xl font-semibold tracking-tight text-slate-50 md:text-5xl">Trading Workstation</h1>
+              <p class="mt-3 max-w-3xl text-sm leading-7 text-slate-300 md:text-base">
+                TradingView 톤의 다크 워크스테이션 위에 국내 주식 크롤링, 군집화, ML/DL 분석, Mongo 기록, Airflow 배치 상태를 한 화면에서 다루도록 재구성했습니다.
+              </p>
+            </div>
+          </div>
+          <div class="mt-5 flex flex-wrap gap-2 text-xs text-slate-300">
+            <span class="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-2">Pretendard UI</span>
+            <span class="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-2">Tailwind Dark Board</span>
+            <span class="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-2">Signal + Forecast</span>
+            <span class="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-2">Mongo Ops</span>
+            <span class="rounded-full border border-slate-700 bg-slate-900/70 px-3 py-2">Airflow DAGs</span>
+          </div>
+        </div>
+        <div class="grid gap-3 md:grid-cols-3">
+          <a href="{{ airflow_ui_url }}" target="_blank" rel="noreferrer" class="panel block min-w-[180px] px-4 py-4 hover:border-sky/70">
+            <div class="micro-label">Airflow</div>
+            <div class="mt-2 text-lg font-semibold text-slate-50">Pipeline Room</div>
+            <div class="mt-1 text-sm text-slate-400">DAG UI 열기</div>
+          </a>
+          <div class="panel min-w-[180px] px-4 py-4">
+            <div class="micro-label">Flask API</div>
+            <div id="flask-health-text" class="mt-2 text-lg font-semibold text-slate-50">Checking</div>
+            <div class="mt-1 flex items-center gap-2 text-sm text-slate-400">
+              <span id="flask-health-dot" class="status-dot warn"></span>
+              <span id="flask-health-url">{{ api_base_url }}</span>
+            </div>
+          </div>
+          <div class="panel min-w-[180px] px-4 py-4">
+            <div class="micro-label">Mongo Channel</div>
+            <div id="mongo-health-text" class="mt-2 text-lg font-semibold text-slate-50">Checking</div>
+            <div class="mt-1 flex items-center gap-2 text-sm text-slate-400">
+              <span id="mongo-health-dot" class="status-dot warn"></span>
+              <span>Persistence Lane</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <section class="workspace-grid mt-5 grid gap-5 lg:grid-cols-[360px_minmax(0,1fr)]">
+      <aside class="space-y-5">
+        <section class="panel p-5">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="micro-label">Ticket Setup</div>
+              <h2 class="mt-2 text-lg font-semibold text-slate-50">Market Inputs</h2>
+            </div>
+            <span class="rounded-full border border-slate-700 bg-slate-900/80 px-3 py-1 text-xs text-slate-300">Real-Time Desk</span>
+          </div>
+          <div class="mt-5 grid gap-4">
+            <label class="text-sm text-slate-300">대표 종목코드
+              <input id="ticker" class="data-field mt-2" value="005930" />
+            </label>
+            <label class="text-sm text-slate-300">비교 종목코드
+              <input id="tickers" class="data-field mt-2" value="005930,000660,035420,051910" />
+            </label>
+            <div class="grid grid-cols-2 gap-4">
+              <label class="text-sm text-slate-300">데이터 소스
+                <select id="source" class="data-field mt-2">
+                  <option value="naver">naver</option>
+                  <option value="yfinance">yfinance</option>
+                </select>
+              </label>
+              <label class="text-sm text-slate-300">시장
+                <select id="market" class="data-field mt-2">
+                  <option value="kospi">KOSPI</option>
+                  <option value="kosdaq">KOSDAQ</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <label class="text-sm text-slate-300">페이지 수
+                <input id="pages" type="number" min="5" max="120" class="data-field mt-2" value="40" />
+              </label>
+              <label class="text-sm text-slate-300">기간
+                <input id="period" class="data-field mt-2" value="5y" />
+              </label>
+            </div>
+            <div class="grid grid-cols-2 gap-4">
+              <label class="text-sm text-slate-300">시퀀스 길이
+                <input id="seq_len" type="number" min="5" max="60" class="data-field mt-2" value="20" />
+              </label>
+              <label class="text-sm text-slate-300">군집 수
+                <input id="n_clusters" type="number" min="2" max="8" class="data-field mt-2" value="3" />
+              </label>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel p-5">
+          <div class="micro-label">Execution Lane</div>
+          <h2 class="mt-2 text-lg font-semibold text-slate-50">Analysis Actions</h2>
+          <div class="mt-5 grid gap-3">
+            <button data-action="crawl" class="action-btn rounded-2xl px-4 py-4 text-left">
+              <div class="text-xs uppercase tracking-[0.18em] text-cyan-300">Crawler</div>
+              <div class="mt-2 text-lg font-semibold text-slate-50">데이터 수집</div>
+              <div class="mt-1 text-sm text-slate-400">OHLCV, 종목 정보, 시장 샘플 적재</div>
+            </button>
+            <button data-action="cluster" class="action-btn rounded-2xl px-4 py-4 text-left">
+              <div class="text-xs uppercase tracking-[0.18em] text-emerald-300">Cluster</div>
+              <div class="mt-2 text-lg font-semibold text-slate-50">종목 군집화</div>
+              <div class="mt-1 text-sm text-slate-400">모멘텀과 변동성 기준 포지셔닝</div>
+            </button>
+            <button data-action="ml" class="action-btn rounded-2xl px-4 py-4 text-left">
+              <div class="text-xs uppercase tracking-[0.18em] text-sky-300">Signal ML</div>
+              <div class="mt-2 text-lg font-semibold text-slate-50">ML 방향 예측</div>
+              <div class="mt-1 text-sm text-slate-400">RF/GB/XGB 기반 방향성 평가</div>
+            </button>
+            <button data-action="dl" class="action-btn rounded-2xl px-4 py-4 text-left">
+              <div class="text-xs uppercase tracking-[0.18em] text-fuchsia-300">Signal DL</div>
+              <div class="mt-2 text-lg font-semibold text-slate-50">DL 방향 예측</div>
+              <div class="mt-1 text-sm text-slate-400">LSTM/MLP 시퀀스 예측</div>
+            </button>
+            <button data-action="forecast" class="action-btn rounded-2xl px-4 py-4 text-left">
+              <div class="text-xs uppercase tracking-[0.18em] text-amber-300">Forecast</div>
+              <div class="mt-2 text-lg font-semibold text-slate-50">내일 주가 리포트</div>
+              <div class="mt-1 text-sm text-slate-400">예상 밴드와 핵심 시나리오 생성</div>
+            </button>
+          </div>
+        </section>
+
+        <section class="panel p-5">
+          <div class="micro-label">Mongo Ops</div>
+          <h2 class="mt-2 text-lg font-semibold text-slate-50">CRUD Console</h2>
+          <div class="mt-5 grid gap-4">
+            <label class="text-sm text-slate-300">사용자명
+              <input id="mongo-user" class="data-field mt-2" value="demo_user" />
+            </label>
+            <label class="text-sm text-slate-300">비밀번호
+              <input id="mongo-pass" type="password" class="data-field mt-2" placeholder="비밀번호 입력" />
+            </label>
+            <label class="text-sm text-slate-300">권한
+              <input id="mongo-role" class="data-field mt-2" value="user" />
+            </label>
+            <label class="text-sm text-slate-300">삭제 타입
+              <select id="mongo-delete-type" class="data-field mt-2">
+                <option value="users">users</option>
+                <option value="crawls">crawls</option>
+                <option value="analyses">analyses</option>
+              </select>
+            </label>
+            <label class="text-sm text-slate-300">삭제 대상 ID
+              <input id="mongo-delete-id" class="data-field mt-2" placeholder="MongoDB document id" />
+            </label>
+          </div>
+          <div class="mt-5 grid grid-cols-2 gap-3 text-sm">
+            <button data-mongo-action="mongo-create-user" class="action-btn rounded-xl px-3 py-3">사용자 생성</button>
+            <button data-mongo-action="mongo-login" class="action-btn rounded-xl px-3 py-3">사용자 로그인</button>
+            <button data-mongo-action="mongo-list-users" class="action-btn rounded-xl px-3 py-3">사용자 목록</button>
+            <button data-mongo-action="mongo-list-crawls" class="action-btn rounded-xl px-3 py-3">크롤링 목록</button>
+            <button data-mongo-action="mongo-list-analyses" class="action-btn rounded-xl px-3 py-3">분석 목록</button>
+            <button data-mongo-action="mongo-delete-doc" class="action-btn rounded-xl px-3 py-3">문서 삭제</button>
+          </div>
+        </section>
+      </aside>
+
+      <section class="space-y-5">
+        <section class="panel p-5">
+          <div class="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <div class="micro-label">Execution Feed</div>
+              <h2 id="result-title" class="mt-2 text-2xl font-semibold text-slate-50">Board Ready</h2>
+              <p id="result-subtitle" class="mt-2 text-sm text-slate-400">분석 액션을 선택하면 이 영역에 시그널과 로그가 나타납니다.</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <span id="status-pill" class="rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-200">대기 중</span>
+              <span class="rounded-full border border-slate-700 bg-slate-900/80 px-4 py-2 text-sm text-slate-300">TradingView Mood</span>
+            </div>
+          </div>
+          <div id="summary-grid" class="mt-5 grid gap-4 md:grid-cols-2 2xl:grid-cols-4"></div>
+        </section>
+
+        <section class="grid gap-5 xl:grid-cols-[minmax(0,1.5fr)_420px]">
+          <div class="panel p-5">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="micro-label">Visual Engine</div>
+                <h3 class="mt-2 text-lg font-semibold text-slate-50">Charts</h3>
+              </div>
+            </div>
+            <div id="chart-area" class="mt-5 grid gap-5 xl:grid-cols-2"></div>
+          </div>
+
+          <div class="panel p-5">
+            <div class="micro-label">Execution Log</div>
+            <h3 class="mt-2 text-lg font-semibold text-slate-50">Notes & Status</h3>
+            <div id="notes-box" class="mt-5 rounded-2xl border border-slate-800 bg-slate-950/55">
+              <div id="notes-list"></div>
+            </div>
+          </div>
+        </section>
+
+        <section class="panel p-5">
+          <div class="flex items-center justify-between">
+            <div>
+              <div class="micro-label">Ledger View</div>
+              <h3 class="mt-2 text-lg font-semibold text-slate-50">Detail Table</h3>
+            </div>
+          </div>
+          <div id="table-box" class="mt-5 table-shell">
+            <div id="table-empty" class="px-5 py-10 text-sm text-slate-400">데이터가 준비되면 표가 이곳에 렌더링됩니다.</div>
+            <div id="table-wrap" class="hidden overflow-auto"></div>
+          </div>
+        </section>
+      </section>
+    </section>
+  </main>
+
+  <script>
+    const API_BASE = "{{ api_base_url|escapejs }}";
+    const AIRFLOW_UI_URL = "{{ airflow_ui_url|escapejs }}";
+    const statusPill = document.getElementById("status-pill");
+    const summaryGrid = document.getElementById("summary-grid");
+    const notesList = document.getElementById("notes-list");
+    const resultTitle = document.getElementById("result-title");
+    const resultSubtitle = document.getElementById("result-subtitle");
+    const chartArea = document.getElementById("chart-area");
+    const tableWrap = document.getElementById("table-wrap");
+    const tableEmpty = document.getElementById("table-empty");
+    const mongoButtons = Array.from(document.querySelectorAll("[data-mongo-action]"));
+    const actionButtons = Array.from(document.querySelectorAll("[data-action]"));
+    let charts = [];
+    let mongoReady = false;
+
+    const getCommon = () => ({
+      ticker: document.getElementById("ticker").value.trim() || "005930",
+      tickers: document.getElementById("tickers").value.split(",").map(v => v.trim()).filter(Boolean),
+      source: document.getElementById("source").value,
+      market: document.getElementById("market").value,
+      pages: Number(document.getElementById("pages").value || 40),
+      period: document.getElementById("period").value.trim() || "5y",
+      seq_len: Number(document.getElementById("seq_len").value || 20),
+      n_clusters: Number(document.getElementById("n_clusters").value || 3),
+    });
+
+    const getMongoCommon = () => ({
+      username: document.getElementById("mongo-user").value.trim(),
+      password: document.getElementById("mongo-pass").value,
+      role: document.getElementById("mongo-role").value.trim() || "user",
+      deleteType: document.getElementById("mongo-delete-type").value,
+      deleteId: document.getElementById("mongo-delete-id").value.trim(),
+    });
+
+    const setStatus = (text, tone = "neutral") => {
+      const tones = {
+        neutral: "border-slate-700 bg-slate-900/80 text-slate-200",
+        ok: "border-emerald-500/40 bg-emerald-500/15 text-emerald-200",
+        warn: "border-amber-500/40 bg-amber-500/12 text-amber-200",
+        fail: "border-rose-500/40 bg-rose-500/12 text-rose-200",
+      };
+      statusPill.className = `rounded-full border px-4 py-2 text-sm ${tones[tone] || tones.neutral}`;
+      statusPill.textContent = text;
+    };
+
+    const clearBoard = () => {
+      summaryGrid.innerHTML = "";
+      notesList.innerHTML = "";
+      chartArea.innerHTML = "";
+      tableWrap.innerHTML = "";
+      tableWrap.classList.add("hidden");
+      tableEmpty.classList.remove("hidden");
+      charts.forEach(chart => chart.destroy());
+      charts = [];
+    };
+
+    const renderSummary = (items = []) => {
+      summaryGrid.innerHTML = "";
+      if (!items.length) {
+        summaryGrid.innerHTML = `<div class="summary-card col-span-full text-sm text-slate-400">핵심 카드가 아직 없습니다.</div>`;
+        return;
+      }
+      items.forEach(item => {
+        const el = document.createElement("div");
+        el.className = "summary-card";
+        el.innerHTML = `
+          <div class="micro-label">${item.label}</div>
+          <div class="mt-3 text-2xl font-semibold text-slate-50">${item.value}</div>
+          ${item.subtext ? `<div class="mt-2 text-sm text-slate-400">${item.subtext}</div>` : ""}
+        `;
+        summaryGrid.appendChild(el);
+      });
+    };
+
+    const renderNotes = (notes = []) => {
+      notesList.innerHTML = "";
+      if (!notes.length) {
+        notesList.innerHTML = `<div class="px-4 py-4 text-sm text-slate-400">메모가 없습니다.</div>`;
+        return;
+      }
+      notes.forEach(note => {
+        const row = document.createElement("div");
+        row.className = "log-item px-4 py-4 text-sm leading-6 text-slate-300";
+        row.textContent = note;
+        notesList.appendChild(row);
+      });
+    };
+
+    const renderTable = (rows = []) => {
+      if (!rows.length) {
+        tableWrap.classList.add("hidden");
+        tableEmpty.classList.remove("hidden");
+        return;
+      }
+      const cols = Array.from(rows.reduce((acc, row) => {
+        Object.keys(row).forEach(key => acc.add(key));
+        return acc;
+      }, new Set()));
+      tableWrap.innerHTML = `
+        <table>
+          <thead>
+            <tr>${cols.map(col => `<th>${col}</th>`).join("")}</tr>
+          </thead>
+          <tbody>
+            ${rows.map(row => `
+              <tr>${cols.map(col => `<td>${row[col] ?? "-"}</td>`).join("")}</tr>
+            `).join("")}
+          </tbody>
+        </table>
+      `;
+      tableWrap.classList.remove("hidden");
+      tableEmpty.classList.add("hidden");
+    };
+
+    const datasetDefaults = (chartType, ds) => ({
+      label: ds.label,
+      data: ds.data,
+      borderColor: ds.borderColor || ds.backgroundColor || "#2f81f7",
+      backgroundColor: ds.backgroundColor || ds.borderColor || "#2f81f7",
+      tension: chartType === "line" ? 0.28 : 0,
+      borderWidth: 2,
+      fill: false,
+    });
+
+    const renderCharts = (chartConfigs = []) => {
+      chartArea.innerHTML = "";
+      charts.forEach(chart => chart.destroy());
+      charts = [];
+      if (!chartConfigs.length) {
+        chartArea.innerHTML = `<div class="rounded-2xl border border-slate-800 bg-slate-950/55 px-5 py-12 text-sm text-slate-400 xl:col-span-2">차트 데이터가 아직 없습니다.</div>`;
+        return;
+      }
+      chartConfigs.forEach((cfg, index) => {
+        const card = document.createElement("div");
+        card.className = "rounded-2xl border border-slate-800 bg-slate-950/55 p-4";
+        card.innerHTML = `
+          <div class="mb-4 flex items-center justify-between">
+            <div class="text-sm font-semibold text-slate-100">${cfg.title || `Chart ${index + 1}`}</div>
+            <div class="text-xs text-slate-500">${cfg.type || "line"}</div>
+          </div>
+          <canvas id="chart-${index}" height="240"></canvas>
+        `;
+        chartArea.appendChild(card);
+        const canvas = card.querySelector("canvas");
+        const chart = new Chart(canvas, {
+          type: cfg.type || "line",
+          data: {
+            labels: cfg.labels || [],
+            datasets: (cfg.datasets || []).map(ds => datasetDefaults(cfg.type || "line", ds)),
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+              legend: { labels: { color: "#dce6f7" } },
+            },
+            scales: {
+              x: {
+                ticks: { color: "#8ea2c7", maxRotation: 0, autoSkip: true },
+                grid: { color: "rgba(84, 104, 140, 0.14)" },
+              },
+              y: {
+                ticks: { color: "#8ea2c7" },
+                grid: { color: "rgba(84, 104, 140, 0.14)" },
+              },
+            },
+          },
+        });
+        charts.push(chart);
+      });
+    };
+
+    const asArrayRows = value => Array.isArray(value) ? value : [];
+
+    const stringifyFlat = value => {
+      if (value === null || value === undefined || value === "") return "-";
+      if (typeof value === "object") return JSON.stringify(value);
+      return String(value);
+    };
+
+    const parseProbabilityEntries = (probabilities) => {
+      if (!probabilities) return [];
+      if (Array.isArray(probabilities)) {
+        return probabilities.map((value, idx) => ({ label: `Class ${idx}`, value: Number(value) || 0 }));
+      }
+      if (typeof probabilities === "object") {
+        return Object.entries(probabilities).map(([label, value]) => ({ label, value: Number(value) || 0 }));
+      }
+      return [];
+    };
+
+    const normalizeResult = (action, data) => {
+      if (action === "crawl") {
+        const latest = data.latest_ohlcv || {};
+        return {
+          summary: [
+            { label: "Ticker", value: data.ticker || "-" },
+            { label: "종목명", value: data.stock_info?.name || "-" },
+            { label: "Rows", value: String(data.ohlcv_rows || 0) },
+            { label: "Market", value: data.market || "-" },
+          ],
+          notes: [
+            `마지막 캔들 일자: ${latest.Date || "-"}`,
+            `종가: ${latest.Close ?? "-"}`,
+            data.mongo_id ? `Mongo 저장 ID: ${data.mongo_id}` : "Mongo 저장은 생략되었거나 미연결 상태입니다.",
+          ],
+          charts: [],
+          table: asArrayRows(data.market_sample).slice(0, 10),
+        };
+      }
+
+      if (action === "cluster") {
+        const counts = {};
+        asArrayRows(data.assignments).forEach(row => {
+          const key = String(row.cluster);
+          counts[key] = (counts[key] || 0) + 1;
+        });
+        return {
+          summary: [
+            { label: "Clusters", value: String(data.n_clusters || "-") },
+            { label: "Method", value: data.method || "-" },
+            { label: "Silhouette", value: String(data.silhouette ?? "-") },
+            { label: "Errors", value: String((data.errors || []).length) },
+          ],
+          notes: [
+            ...(data.cluster_names || []).map((name, idx) => `Cluster ${idx}: ${name}`),
+            ...((data.errors || []).length ? data.errors : ["군집화가 정상 완료되었습니다."]),
+          ],
+          charts: [
+            {
+              title: "Cluster Distribution",
+              type: "bar",
+              labels: Object.keys(counts),
+              datasets: [
+                {
+                  label: "Tickers",
+                  data: Object.values(counts),
+                  backgroundColor: "#2f81f7",
+                },
+              ],
+            },
+          ],
+          table: asArrayRows(data.assignments),
+        };
+      }
+
+      if (action === "ml" || action === "dl") {
+        const probs = parseProbabilityEntries(data.probabilities);
+        return {
+          summary: [
+            { label: "Ticker", value: data.ticker || "-" },
+            { label: "Model", value: data.model_type || "-" },
+            { label: "Accuracy", value: data.accuracy !== undefined ? `${(Number(data.accuracy) * 100).toFixed(2)}%` : "-" },
+            { label: "Signal", value: stringifyFlat(data.signal) },
+          ],
+          notes: [
+            data.mongo_id ? `Mongo 저장 ID: ${data.mongo_id}` : "Mongo 저장 없이 응답만 반환되었습니다.",
+            `${action.toUpperCase()} 추론이 완료되었습니다.`,
+          ],
+          charts: probs.length ? [
+            {
+              title: `${action.toUpperCase()} Probability`,
+              type: "bar",
+              labels: probs.map(item => item.label),
+              datasets: [
+                {
+                  label: "Probability",
+                  data: probs.map(item => item.value),
+                  backgroundColor: action === "ml" ? "#2f81f7" : "#8b5cf6",
+                },
+              ],
+            },
+          ] : [],
+          table: Object.entries(data).map(([key, value]) => ({ field: key, value: stringifyFlat(value) })),
+        };
+      }
+
+      if (action === "forecast") {
+        return {
+          summary: asArrayRows(data.summary),
+          notes: asArrayRows(data.notes),
+          charts: asArrayRows(data.charts),
+          table: [
+            {
+              ticker: data.ticker,
+              name: data.name,
+              target_date: data.target_date,
+              latest_close: data.latest_close,
+              predicted_lower: data.predicted_lower,
+              predicted_upper: data.predicted_upper,
+              volatility_pct: data.recent_volatility_pct,
+            },
+          ],
+        };
+      }
+
+      if (action.startsWith("mongo-")) {
+        if (Array.isArray(data)) {
+          return {
+            summary: [
+              { label: "Documents", value: String(data.length) },
+              { label: "Source", value: action.replace("mongo-", "") },
+            ],
+            notes: data.length ? data.slice(0, 3).map(item => `${item.username || item.analysis_type || item.ticker || item.id}`) : ["문서가 없습니다."],
+            charts: [],
+            table: data,
+          };
+        }
+        return {
+          summary: Object.entries(data).map(([key, value]) => ({ label: key, value: stringifyFlat(value) })).slice(0, 4),
+          notes: [JSON.stringify(data)],
+          charts: [],
+          table: [Object.fromEntries(Object.entries(data).map(([key, value]) => [key, stringifyFlat(value)]))],
+        };
+      }
+
+      return {
+        summary: [{ label: "Status", value: "Completed" }],
+        notes: [JSON.stringify(data)],
+        charts: [],
+        table: [data],
+      };
+    };
+
+    const runRequest = async (action, endpoint, payload = null, method = "POST") => {
+      setStatus("실행 중", "warn");
+      resultTitle.textContent = action.toUpperCase();
+      resultSubtitle.textContent = `${method} ${endpoint}`;
+      clearBoard();
+      renderNotes([`${action} 요청을 전송했습니다.`]);
+
+      const options = { method, headers: { "Content-Type": "application/json" } };
+      if (payload && method !== "GET") options.body = JSON.stringify(payload);
+
+      const res = await fetch(`${API_BASE}${endpoint}`, options);
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(typeof data.detail === "string" ? data.detail : JSON.stringify(data.detail || data));
+      }
+      const normalized = normalizeResult(action, data);
+      renderSummary(normalized.summary);
+      renderNotes(normalized.notes);
+      renderCharts(normalized.charts);
+      renderTable(normalized.table);
+      setStatus("완료", "ok");
+      return data;
+    };
+
+    const actions = {
+      crawl: () => {
+        const c = getCommon();
+        return runRequest("crawl", "/api/webapp/crawl", {
+          ticker: c.ticker,
+          market: c.market,
+          pages: Math.min(c.pages, 20),
+        });
+      },
+      cluster: () => {
+        const c = getCommon();
+        return runRequest("cluster", "/api/webapp/cluster", {
+          tickers: c.tickers,
+          pages: Math.min(c.pages, 20),
+          n_clusters: c.n_clusters,
+          method: "kmeans",
+        });
+      },
+      ml: () => {
+        const c = getCommon();
+        return runRequest("ml", "/api/webapp/ml-predict", {
+          ticker: c.ticker,
+          source: c.source,
+          pages: Math.max(c.pages, 30),
+          period: c.period,
+          model_type: "rf",
+          forward_days: 5,
+          threshold: 0.01,
+        });
+      },
+      dl: () => {
+        const c = getCommon();
+        return runRequest("dl", "/api/webapp/dl-predict", {
+          ticker: c.ticker,
+          source: c.source,
+          pages: Math.max(c.pages, 30),
+          period: c.period,
+          model_type: "auto",
+          seq_len: c.seq_len,
+          forward_days: 5,
+          threshold: 0.01,
+          epochs: 20,
+        });
+      },
+      forecast: () => {
+        const c = getCommon();
+        return runRequest("forecast", "/api/webapp/stock-forecast", {
+          ticker: c.ticker,
+          source: c.source,
+          pages: Math.min(c.pages, 30),
+          period: "1y",
+        });
+      },
+      "mongo-create-user": () => {
+        const m = getMongoCommon();
+        return runRequest("mongo-create-user", "/api/mongo/users", {
+          username: m.username,
+          password: m.password,
+          role: m.role,
+        });
+      },
+      "mongo-login": () => {
+        const m = getMongoCommon();
+        return runRequest("mongo-login", "/api/mongo/auth/login", {
+          username: m.username,
+          password: m.password,
+        });
+      },
+      "mongo-list-users": () => runRequest("mongo-list-users", "/api/mongo/users?limit=20", null, "GET"),
+      "mongo-list-crawls": () => runRequest("mongo-list-crawls", "/api/mongo/crawls?limit=20", null, "GET"),
+      "mongo-list-analyses": () => runRequest("mongo-list-analyses", "/api/mongo/analyses?limit=20", null, "GET"),
+      "mongo-delete-doc": () => {
+        const m = getMongoCommon();
+        if (!m.deleteId) throw new Error("삭제할 ID를 입력하세요.");
+        return runRequest("mongo-delete-doc", `/api/mongo/${m.deleteType}/${m.deleteId}`, null, "DELETE");
+      },
+    };
+
+    const updateServiceBadge = (prefix, ok, text, urlText = "") => {
+      const dot = document.getElementById(`${prefix}-health-dot`);
+      const label = document.getElementById(`${prefix}-health-text`);
+      dot.className = `status-dot ${ok ? "ok" : "fail"}`;
+      label.textContent = text;
+      if (urlText) {
+        const extra = document.getElementById(`${prefix}-health-url`);
+        if (extra) extra.textContent = urlText;
+      }
+    };
+
+    const checkServices = async () => {
+      try {
+        const flaskRes = await fetch(`${API_BASE}/health`);
+        const flaskData = await flaskRes.json();
+        updateServiceBadge("flask", flaskRes.ok, flaskRes.ok ? "Online" : "Offline", `${flaskData.service || "flask-api"} @ ${API_BASE}`);
+      } catch (err) {
+        updateServiceBadge("flask", false, "Unavailable", API_BASE);
+      }
+
+      try {
+        const mongoRes = await fetch(`${API_BASE}/api/mongo/health`);
+        mongoReady = mongoRes.ok;
+        updateServiceBadge("mongo", mongoRes.ok, mongoRes.ok ? "Connected" : "Disconnected");
+      } catch (err) {
+        mongoReady = false;
+        updateServiceBadge("mongo", false, "Disconnected");
+      }
+      mongoButtons.forEach(btn => { btn.disabled = !mongoReady; });
+      if (!mongoReady) {
+        renderNotes([
+          `MongoDB가 연결되지 않아 CRUD 버튼은 비활성화됩니다.`,
+          `Airflow UI: ${AIRFLOW_UI_URL}`,
+        ]);
+      }
+    };
+
+    actionButtons.forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const action = btn.dataset.action;
+        try {
+          await actions[action]();
+        } catch (err) {
+          setStatus("실패", "fail");
+          renderSummary([{ label: "Error", value: "Request Failed" }]);
+          renderCharts([]);
+          renderTable([]);
+          renderNotes([String(err.message || err)]);
+        }
+      });
+    });
+
+    mongoButtons.forEach(btn => {
+      btn.addEventListener("click", async () => {
+        const action = btn.dataset.mongoAction;
+        try {
+          await actions[action]();
+        } catch (err) {
+          setStatus("실패", "fail");
+          renderSummary([{ label: "Error", value: "Mongo Request Failed" }]);
+          renderCharts([]);
+          renderTable([]);
+          renderNotes([String(err.message || err)]);
+        }
+      });
+    });
+
+    renderSummary([
+      { label: "Framework", value: "Django", subtext: "Main workstation shell" },
+      { label: "API", value: "Flask", subtext: "Analysis + Mongo endpoints" },
+      { label: "Batch", value: "Airflow", subtext: "Daily orchestration" },
+      { label: "Style", value: "TradingView", subtext: "Tailwind + Pretendard" },
+    ]);
+    renderNotes([
+      "좌측 패널에서 액션을 선택해 분석을 실행하세요.",
+      "Mongo CRUD는 연결이 확인되면 자동으로 활성화됩니다.",
+      "Airflow는 주기적 크롤링과 예측 파이프라인용으로 분리했습니다.",
+    ]);
+    renderCharts([]);
+    checkServices();
+  </script>
+</body>
+</html>

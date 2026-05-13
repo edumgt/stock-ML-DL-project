@@ -31,5 +31,5 @@ COPY . .
 
 EXPOSE 8000
 
-# 기본 CMD: api-gateway (K8s Deployment에서 args로 오버라이드 가능)
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# 기본 CMD: Django 메인 웹앱
+CMD ["python", "manage.py", "runserver", "0.0.0.0:8000"]

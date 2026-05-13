@@ -1,11 +1,5 @@
 version: "3.9"
 
-# ─────────────────────────────────────────────────
-#  Stock ML/DL Project – MSA 로컬 개발 환경
-#  실행: docker compose up --build
-#  웹앱: http://localhost:8000
-# ─────────────────────────────────────────────────
-
 x-common-env: &common-env
   MONGODB_URI: mongodb://mongo:27017
   MONGODB_DB_NAME: stock_mldl
@@ -16,12 +10,8 @@ x-service-base: &service-base
     dockerfile: Dockerfile
     target: runtime
   restart: unless-stopped
-  depends_on:
-    mongo:
-      condition: service_healthy
 
 services:
-  # ── MongoDB ────────────────────────────────────
   mongo:
     image: mongo:7.0
     restart: unless-stopped
@@ -36,49 +26,59 @@ services:
       retries: 5
       start_period: 20s
 
-  # ── API Gateway (프론트엔드 + 웹앱 대시보드 API) ─
-  api-gateway:
+  django-web:
     <<: *service-base
-    command: ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: ["python", "manage.py", "runserver", "0.0.0.0:8000"]
     environment:
-      <<: *common-env
+      FLASK_API_BASE_URL: http://localhost:5000
+      AIRFLOW_UI_URL: http://localhost:8080
     ports:
       - "8000:8000"
     volumes:
-      - .:/app  # 핫 리로드를 위해 소스 마운트
+      - .:/app
 
-  # ── ML/DL Service ──────────────────────────────
-  ml-service:
+  flask-api:
     <<: *service-base
-    command: ["uvicorn", "services.ml_service:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command: ["flask", "--app", "flask_api.app", "run", "--host", "0.0.0.0", "--port", "5000", "--debug"]
+    depends_on:
+      mongo:
+        condition: service_healthy
     environment:
       <<: *common-env
+      FLASK_ENV: development
+      CORS_ORIGINS: http://localhost:8000,http://127.0.0.1:8000
     ports:
-      - "8001:8000"
+      - "5000:5000"
     volumes:
       - .:/app
 
-  # ── Crawler Service ────────────────────────────
-  crawler-service:
-    <<: *service-base
-    command: ["uvicorn", "services.crawler_service:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+  airflow:
+    image: apache/airflow:2.10.5-python3.11
+    restart: unless-stopped
+    depends_on:
+      - flask-api
+      - mongo
     environment:
       <<: *common-env
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__EXECUTOR: SequentialExecutor
+      AIRFLOW__CORE__FERNET_KEY: ""
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: sqlite:////opt/airflow/airflow.db
+      AIRFLOW__WEBSERVER__SECRET_KEY: stock-mldl-airflow
+      AIRFLOW__API__AUTH_BACKENDS: airflow.api.auth.backend.basic_auth
+      AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+      FLASK_API_BASE_URL: http://flask-api:5000
+      PYTHONPATH: /opt/airflow/project
+      _PIP_ADDITIONAL_REQUIREMENTS: "pymongo requests beautifulsoup4 lxml yfinance pandas numpy scikit-learn scipy joblib xgboost"
     ports:
-      - "8002:8000"
+      - "8080:8080"
     volumes:
-      - .:/app
-
-  # ── Mongo CRUD Service ─────────────────────────
-  mongo-service:
-    <<: *service-base
-    command: ["uvicorn", "services.mongo_service:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
-    environment:
-      <<: *common-env
-    ports:
-      - "8003:8000"
-    volumes:
-      - .:/app
+      - ./airflow/dags:/opt/airflow/dags
+      - .:/opt/airflow/project
+    command: >
+      bash -lc "airflow db migrate &&
+      airflow users create --username admin --password admin --firstname Stock --lastname Admin --role Admin --email admin@example.com || true &&
+      airflow standalone"
 
 volumes:
   mongo_data:
