@@ -64,7 +64,8 @@ uvicorn api.main:app --reload --port 8000
 
 ## 웹앱 화면 스크린샷
 
-> Playwright로 캡처한 주요 화면 10개입니다.
+> 로컬에서 `uvicorn api.main:app --port 8000` 실행 후 Playwright로 재캡처한 주요 화면 10개입니다.
+> 캡처 시점마다 결과가 달라지지 않도록 액션 결과 화면(5~8)은 고정 mock 응답 기준으로 촬영했습니다.
 
 ### 1. 메인 화면 초기 상태
 ![메인 화면 초기](docs/screenshots/01_main_home.png)
