@@ -5,6 +5,8 @@ from __future__ import annotations
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
+from api.mongodb_store import repo
+
 router = APIRouter(prefix="/api/webapp", tags=["WebApp Dashboard"])
 
 
@@ -74,6 +76,22 @@ def _load_ohlcv(ticker: str, source: str, pages: int, period: str):
     return df
 
 
+def _save_crawl(payload: dict):
+    try:
+        repo.ping()
+        return repo.insert_one(repo.crawls, payload)
+    except Exception:
+        return None
+
+
+def _save_analysis(payload: dict):
+    try:
+        repo.ping()
+        return repo.insert_one(repo.analyses, payload)
+    except Exception:
+        return None
+
+
 @router.post("/crawl")
 def crawl(req: CrawlReq):
     try:
@@ -90,7 +108,7 @@ def crawl(req: CrawlReq):
 
     latest = df.tail(1).copy()
     latest["Date"] = latest["Date"].dt.strftime("%Y-%m-%d")
-    return {
+    response = {
         "ticker": req.ticker,
         "ohlcv_rows": len(df),
         "latest_ohlcv": latest.to_dict(orient="records")[0],
@@ -98,6 +116,20 @@ def crawl(req: CrawlReq):
         "market": req.market.upper(),
         "market_sample": market_df.head(10).to_dict(orient="records"),
     }
+    mongo_id = _save_crawl(
+        {
+            "ticker": req.ticker,
+            "market": req.market,
+            "pages": req.pages,
+            "ohlcv_rows": len(df),
+            "latest_ohlcv": response["latest_ohlcv"],
+            "stock_info": info,
+            "market_sample": response["market_sample"],
+        }
+    )
+    if mongo_id:
+        response["mongo_id"] = mongo_id
+    return response
 
 
 @router.post("/cluster")
@@ -125,7 +157,7 @@ def cluster(req: ClusterReq):
         raise HTTPException(status_code=400, detail="유효 종목 수가 군집 수보다 적습니다.")
 
     result = StockClusterer(n_clusters=req.n_clusters, method=req.method).fit(ticker_dfs)
-    return {
+    response = {
         "n_clusters": result.n_clusters,
         "method": result.method,
         "silhouette": round(result.silhouette, 4),
@@ -134,6 +166,17 @@ def cluster(req: ClusterReq):
         "summary": result.summary_df.to_dict(orient="records"),
         "errors": errors,
     }
+    mongo_id = _save_analysis(
+        {
+            "analysis_type": "cluster",
+            "tickers": req.tickers,
+            "params": req.model_dump(),
+            "result": response,
+        }
+    )
+    if mongo_id:
+        response["mongo_id"] = mongo_id
+    return response
 
 
 @router.post("/ml-predict")
@@ -156,13 +199,24 @@ def ml_predict(req: MLPredictReq):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {
+    response = {
         "ticker": req.ticker,
         "model_type": train_result.model_type,
         "accuracy": round(train_result.accuracy, 4),
         "signal": signal,
         "probabilities": proba,
     }
+    mongo_id = _save_analysis(
+        {
+            "analysis_type": "ml",
+            "ticker": req.ticker,
+            "params": req.model_dump(),
+            "result": response,
+        }
+    )
+    if mongo_id:
+        response["mongo_id"] = mongo_id
+    return response
 
 
 @router.post("/dl-predict")
@@ -187,13 +241,24 @@ def dl_predict(req: DLPredictReq):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    return {
+    response = {
         "ticker": req.ticker,
         "model_type": train_result.model_type,
         "accuracy": round(train_result.accuracy, 4),
         "signal": signal,
         "probabilities": proba,
     }
+    mongo_id = _save_analysis(
+        {
+            "analysis_type": "dl",
+            "ticker": req.ticker,
+            "params": req.model_dump(),
+            "result": response,
+        }
+    )
+    if mongo_id:
+        response["mongo_id"] = mongo_id
+    return response
 
 
 @router.post("/timeseries")
@@ -204,7 +269,18 @@ def timeseries(req: AnalysisReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return timeseries_report(req.ticker, req.source, req.pages, req.period)
+        result = timeseries_report(req.ticker, req.source, req.pages, req.period)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "timeseries",
+                "ticker": req.ticker,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -217,7 +293,18 @@ def sequence_lstm(req: AnalysisReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return sequence_report(req.ticker, req.source, req.pages, req.period)
+        result = sequence_report(req.ticker, req.source, req.pages, req.period)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "sequence-lstm",
+                "ticker": req.ticker,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -230,7 +317,18 @@ def attention_core(req: AnalysisReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return attention_report(req.ticker, req.source, req.pages, req.period, req.seq_len)
+        result = attention_report(req.ticker, req.source, req.pages, req.period, req.seq_len)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "attention-core",
+                "ticker": req.ticker,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -243,7 +341,18 @@ def transformer(req: AnalysisReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return transformer_report(req.ticker, req.source, req.pages, req.period, req.seq_len)
+        result = transformer_report(req.ticker, req.source, req.pages, req.period, req.seq_len)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "transformer",
+                "ticker": req.ticker,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -256,7 +365,18 @@ def patchtst(req: AnalysisReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return patchtst_report(req.ticker, req.source, req.pages, req.period)
+        result = patchtst_report(req.ticker, req.source, req.pages, req.period)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "patchtst",
+                "ticker": req.ticker,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -269,7 +389,18 @@ def multihead(req: MultiHeadReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return multihead_report(req.tickers, req.source, req.pages, req.period)
+        result = multihead_report(req.tickers, req.source, req.pages, req.period)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "multihead",
+                "tickers": req.tickers,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -282,6 +413,17 @@ def backtest(req: AnalysisReq):
         raise HTTPException(status_code=503, detail=str(e))
 
     try:
-        return backtest_report(req.ticker, req.source, req.pages, req.period)
+        result = backtest_report(req.ticker, req.source, req.pages, req.period)
+        mongo_id = _save_analysis(
+            {
+                "analysis_type": "backtest",
+                "ticker": req.ticker,
+                "params": req.model_dump(),
+                "result": result,
+            }
+        )
+        if mongo_id:
+            result["mongo_id"] = mongo_id
+        return result
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

@@ -44,6 +44,7 @@ _ROUTER_MODULES = [
     "api.routers.stock_clustering",
     "api.routers.dl_strategy",
     "api.routers.webapp",
+    "api.routers.mongodb_crud",
 ]
 
 for module_path in _ROUTER_MODULES:

@@ -93,6 +93,32 @@
             </button>
           </div>
         </section>
+
+        <section class="rounded-lg border border-slate-800 bg-slate-900/70 p-4">
+          <h2 class="text-sm font-semibold text-slate-100">MongoDB CRUD</h2>
+          <div class="mt-3 grid gap-3">
+            <label class="text-sm text-slate-300">사용자명
+              <input id="mongo-user" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="demo_user" />
+            </label>
+            <label class="text-sm text-slate-300">비밀번호
+              <input id="mongo-pass" type="password" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="demo1234" />
+            </label>
+            <label class="text-sm text-slate-300">권한(role)
+              <input id="mongo-role" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" value="user" />
+            </label>
+            <label class="text-sm text-slate-300">삭제 대상 ID
+              <input id="mongo-delete-id" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2" placeholder="MongoDB document id" />
+            </label>
+          </div>
+          <div class="mt-3 grid grid-cols-2 gap-2 text-sm">
+            <button data-action="mongo-create-user" class="action-btn rounded-lg bg-sky-700 px-3 py-2 hover:bg-sky-600">사용자 생성</button>
+            <button data-action="mongo-login" class="action-btn rounded-lg bg-indigo-700 px-3 py-2 hover:bg-indigo-600">사용자 로그인</button>
+            <button data-action="mongo-list-users" class="action-btn rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">사용자 목록</button>
+            <button data-action="mongo-list-crawls" class="action-btn rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">크롤링 목록</button>
+            <button data-action="mongo-list-analyses" class="action-btn rounded-lg bg-slate-700 px-3 py-2 hover:bg-slate-600">분석 목록</button>
+            <button data-action="mongo-delete-doc" class="action-btn rounded-lg bg-rose-700 px-3 py-2 hover:bg-rose-600">ID로 문서 삭제</button>
+          </div>
+        </section>
       </aside>
 
       <section class="space-y-6">
@@ -143,6 +169,13 @@
       period: document.getElementById('period').value.trim() || '5y',
       seq_len: Number(document.getElementById('seq_len').value || 20),
       n_clusters: Number(document.getElementById('n_clusters').value || 3),
+    });
+
+    const getMongoCommon = () => ({
+      username: document.getElementById('mongo-user').value.trim(),
+      password: document.getElementById('mongo-pass').value,
+      role: document.getElementById('mongo-role').value.trim() || 'user',
+      deleteId: document.getElementById('mongo-delete-id').value.trim(),
     });
 
     const setStatus = (text, ok = null) => {
@@ -269,6 +302,36 @@
       }
     }
 
+    async function runMongoAction(name, url, method = 'GET', payload = null) {
+      setStatus(`${name} 실행 중...`, null);
+      resultTitle.textContent = name;
+      resultSubtitle.textContent = `${method} ${url}`;
+      resultEl.textContent = `${name} 요청 중...`;
+      clearVisuals();
+      try {
+        const options = { method, headers: { 'Content-Type': 'application/json' } };
+        if (payload) options.body = JSON.stringify(payload);
+        const res = await fetch(url, options);
+        const data = await res.json();
+        if (!res.ok) throw new Error(JSON.stringify(data, null, 2));
+        setStatus(`${name} 완료`, true);
+        resultEl.textContent = JSON.stringify(data, null, 2);
+        const docs = Array.isArray(data) ? data : (data.user ? [data.user] : []);
+        if (docs.length) {
+          renderSummary([
+            { label: '문서 개수', value: String(docs.length) },
+            { label: '최신 ID', value: docs[0].id || '-' },
+          ]);
+          renderNotes(docs.slice(0, 5).map((d, idx) => `${idx + 1}. ${d.username || d.analysis_type || d.ticker || d.id || '-'}`));
+        } else {
+          renderSummary([{ label: 'MongoDB', value: '요청 성공' }]);
+        }
+      } catch (err) {
+        setStatus(`${name} 실패`, false);
+        resultEl.textContent = String(err.message || err);
+      }
+    }
+
     const actions = {
       crawl: () => {
         const c = getCommon();
@@ -312,6 +375,44 @@
           threshold: 0.01,
           epochs: 20,
         });
+      },
+      'mongo-create-user': () => {
+        const m = getMongoCommon();
+        return runMongoAction('Mongo 사용자 생성', '/api/mongo/users', 'POST', {
+          username: m.username,
+          password: m.password,
+          role: m.role,
+        });
+      },
+      'mongo-login': () => {
+        const m = getMongoCommon();
+        return runMongoAction('Mongo 로그인', '/api/mongo/auth/login', 'POST', {
+          username: m.username,
+          password: m.password,
+        });
+      },
+      'mongo-list-users': () => runMongoAction('Mongo 사용자 목록', '/api/mongo/users?limit=20'),
+      'mongo-list-crawls': () => runMongoAction('Mongo 크롤링 목록', '/api/mongo/crawls?limit=20'),
+      'mongo-list-analyses': () => runMongoAction('Mongo 분석 목록', '/api/mongo/analyses?limit=20'),
+      'mongo-delete-doc': () => {
+        const m = getMongoCommon();
+        if (!m.deleteId) {
+          setStatus('삭제 실패', false);
+          resultEl.textContent = '삭제할 ID를 입력하세요.';
+          return;
+        }
+        const type = prompt('삭제 타입 입력 (users | crawls | analyses)', 'users') || '';
+        const normalized = type.trim();
+        if (!['users', 'crawls', 'analyses'].includes(normalized)) {
+          setStatus('삭제 실패', false);
+          resultEl.textContent = 'users / crawls / analyses 중 하나를 입력하세요.';
+          return;
+        }
+        return runMongoAction(
+          'Mongo 문서 삭제',
+          `/api/mongo/${normalized}/${m.deleteId}`,
+          'DELETE',
+        );
       },
     };
 
