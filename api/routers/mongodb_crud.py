@@ -68,8 +68,8 @@ class AnalysisUpdateReq(BaseModel):
     memo: str | None = None
 
 
-_PBKDF2_ROUNDS = 600000
-_DUMMY_PASSWORD_HASH = (
+PBKDF2_ROUNDS = 600000
+DUMMY_PASSWORD_HASH = (
     "pbkdf2_sha256$600000$7c6f3bc5a0ec01d1cd0e9f8f6f2c40b6$"
     "5ef95915c8a7a8520bd6d54d52d35f9a194a60e9e7d2c69cdcfba5044a778803"
 )
@@ -81,9 +81,9 @@ def _hash_password(password: str) -> str:
         "sha256",
         password.encode("utf-8"),
         bytes.fromhex(salt_hex),
-        _PBKDF2_ROUNDS,
+        PBKDF2_ROUNDS,
     ).hex()
-    return f"pbkdf2_sha256${_PBKDF2_ROUNDS}${salt_hex}${digest}"
+    return f"pbkdf2_sha256${PBKDF2_ROUNDS}${salt_hex}${digest}"
 
 
 def _verify_password(password: str, encoded_hash: str) -> bool:
@@ -142,7 +142,7 @@ def create_user(req: UserCreateReq):
 def login(req: LoginReq):
     _guard()
     user = repo.users.find_one({"username": req.username, "active": {"$ne": False}})
-    stored_hash = user.get("password_hash") if user else _DUMMY_PASSWORD_HASH
+    stored_hash = user.get("password_hash") if user else DUMMY_PASSWORD_HASH
     valid = _verify_password(req.password, stored_hash)
     if not user or not valid:
         raise HTTPException(status_code=401, detail="로그인 실패")

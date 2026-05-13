@@ -337,7 +337,7 @@
         if (docs.length) {
           renderSummary([
             { label: '문서 개수', value: String(docs.length) },
-            { label: '가장 최근 문서 ID', value: docs[0].id || '-' },
+            { label: '최신 문서 ID', value: docs[0].id || '-' },
           ]);
           renderNotes(docs.slice(0, 5).map((d, idx) => `${idx + 1}. ${d.username || d.analysis_type || d.ticker || d.id || '-'}`));
         } else {
