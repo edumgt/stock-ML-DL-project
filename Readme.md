@@ -119,3 +119,88 @@ trading/
   ml_strategy.py
   dl_strategy.py
 ```
+
+---
+
+## Kubernetes MSA 배포
+
+이 프로젝트는 단일 FastAPI 앱을 **4개의 독립 마이크로서비스**로 분리 배포할 수 있습니다.
+
+### MSA 아키텍처
+
+```
+외부 트래픽
+    │
+    ▼
+[Nginx Ingress]
+    │
+    ├── /api/ml/*   /api/dl/*       → ml-service      (ML/DL 예측)
+    ├── /api/naver/* /api/cluster/* → crawler-service  (데이터 수집·군집화)
+    ├── /api/mongo/*                → mongo-service    (MongoDB CRUD)
+    └── /*                          → api-gateway      (프론트엔드 + 웹앱 대시보드)
+                                           │
+                                    [mongodb StatefulSet]
+```
+
+### 서비스별 역할
+
+| 서비스 | 진입점 | 담당 라우트 | 리소스 |
+|--------|--------|-------------|--------|
+| `api-gateway` | `api.main:app` | `/`, `/api/webapp/*` 등 | 200m CPU / 512Mi |
+| `ml-service` | `services.ml_service:app` | `/api/ml/*`, `/api/dl/*` | 500m CPU / 1Gi |
+| `crawler-service` | `services.crawler_service:app` | `/api/naver/*`, `/api/cluster/*` | 300m CPU / 512Mi |
+| `mongo-service` | `services.mongo_service:app` | `/api/mongo/*` | 100m CPU / 256Mi |
+| `mongodb` | `mongo:7.0` StatefulSet | DB | 250m CPU / 512Mi |
+
+### 로컬 개발 (Docker Compose)
+
+```bash
+docker compose up --build
+```
+
+| 서비스 | 로컬 포트 |
+|--------|-----------|
+| api-gateway | http://localhost:8000 |
+| ml-service | http://localhost:8001 |
+| crawler-service | http://localhost:8002 |
+| mongo-service | http://localhost:8003 |
+
+### Kubernetes 배포
+
+```bash
+# 1. 네임스페이스 및 공통 설정 생성
+kubectl apply -f k8s/namespace.yaml
+kubectl apply -f k8s/configmap.yaml
+
+# 2. MongoDB Secret 수정 후 적용 (비밀번호 반드시 변경)
+#    vi k8s/mongodb/secret.yaml
+kubectl apply -f k8s/mongodb/secret.yaml
+
+# 3. MongoDB 배포
+kubectl apply -f k8s/mongodb/
+
+# 4. 애플리케이션 서비스 배포
+kubectl apply -f k8s/api-gateway/
+kubectl apply -f k8s/ml-service/
+kubectl apply -f k8s/crawler-service/
+kubectl apply -f k8s/mongo-service/
+
+# 5. Ingress 적용 (Nginx Ingress Controller 사전 설치 필요)
+kubectl apply -f k8s/ingress.yaml
+
+# 전체 한 번에 적용
+kubectl apply -R -f k8s/
+```
+
+### Docker 이미지 빌드
+
+모든 서비스가 동일한 Docker 이미지를 사용하며, K8s Deployment의 `command`로 진입점을 구분합니다.
+
+```bash
+docker build -t stock-mldl:latest .
+# 또는 레지스트리에 푸시
+docker build -t ghcr.io/edumgt/stock-mldl:latest .
+docker push ghcr.io/edumgt/stock-mldl:latest
+```
+
+> 빌드 후 `k8s/*/deployment.yaml` 의 `image:` 필드를 실제 레지스트리 경로로 업데이트하세요.

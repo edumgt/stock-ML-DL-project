@@ -1,0 +1,10 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: stock-mldl-config
+  namespace: stock-mldl
+  labels:
+    app.kubernetes.io/part-of: stock-mldl
+data:
+  MONGODB_URI: "mongodb://mongodb:27017"
+  MONGODB_DB_NAME: "stock_mldl"

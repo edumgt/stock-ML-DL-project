@@ -1,0 +1,83 @@
+# Nginx Ingress Controller 필요: https://kubernetes.github.io/ingress-nginx/
+#
+# 설치 (Helm):
+#   helm upgrade --install ingress-nginx ingress-nginx \
+#     --repo https://kubernetes.github.io/ingress-nginx \
+#     --namespace ingress-nginx --create-namespace
+#
+# 경로 라우팅 규칙 (경로 재작성 없이 전달):
+#   /api/ml/*        → ml-service:80      (MLStrategy, /api/ml/train 등)
+#   /api/dl/*        → ml-service:80      (DLStrategy, /api/dl/train 등)
+#   /api/naver/*     → crawler-service:80 (NaverCrawler, /api/naver/ohlcv/... 등)
+#   /api/cluster/*   → crawler-service:80 (StockClusterer, /api/cluster/... 등)
+#   /api/mongo/*     → mongo-service:80   (MongoDB CRUD, /api/mongo/users 등)
+#   /*               → api-gateway:80     (프론트엔드 + /api/webapp/* 등)
+#
+# ※ 각 서비스가 자체 prefix 경로를 그대로 처리하므로 rewrite 불필요
+#
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: stock-mldl-ingress
+  namespace: stock-mldl
+  labels:
+    app.kubernetes.io/part-of: stock-mldl
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+spec:
+  ingressClassName: nginx
+  rules:
+    - http:
+        paths:
+          # ML/DL 서비스 (/api/ml/* 및 /api/dl/*)
+          - path: /api/ml
+            pathType: Prefix
+            backend:
+              service:
+                name: ml-service
+                port:
+                  number: 80
+
+          - path: /api/dl
+            pathType: Prefix
+            backend:
+              service:
+                name: ml-service
+                port:
+                  number: 80
+
+          # 크롤러/군집화 서비스 (/api/naver/* 및 /api/cluster/*)
+          - path: /api/naver
+            pathType: Prefix
+            backend:
+              service:
+                name: crawler-service
+                port:
+                  number: 80
+
+          - path: /api/cluster
+            pathType: Prefix
+            backend:
+              service:
+                name: crawler-service
+                port:
+                  number: 80
+
+          # MongoDB CRUD 서비스 (/api/mongo/*)
+          - path: /api/mongo
+            pathType: Prefix
+            backend:
+              service:
+                name: mongo-service
+                port:
+                  number: 80
+
+          # API Gateway: 프론트엔드, /api/webapp/*, /health, 기타 모든 경로
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: api-gateway
+                port:
+                  number: 80
