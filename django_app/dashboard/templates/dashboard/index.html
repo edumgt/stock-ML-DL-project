@@ -613,11 +613,18 @@
 
       if (action === "ml" || action === "dl") {
         const probs = parseProbabilityEntries(data.probabilities);
+        const cvLabel = data.cv_mean !== undefined
+          ? `${(Number(data.cv_mean) * 100).toFixed(2)}%`
+          : "-";
+        const cvSub = data.cv_std !== undefined
+          ? `±${(Number(data.cv_std) * 100).toFixed(2)}% (5-fold)`
+          : "";
         return {
           summary: [
             { label: "Ticker", value: data.ticker || "-" },
             { label: "Model", value: data.model_type || "-" },
-            { label: "Accuracy", value: data.accuracy !== undefined ? `${(Number(data.accuracy) * 100).toFixed(2)}%` : "-" },
+            { label: "CV Accuracy", value: cvLabel, subtext: cvSub },
+            { label: "Hold-out Acc", value: data.accuracy !== undefined ? `${(Number(data.accuracy) * 100).toFixed(2)}%` : "-" },
             { label: "Signal", value: stringifyFlat(data.signal) },
           ],
           notes: [
@@ -726,6 +733,7 @@
         const c = getCommon();
         return runRequest("cluster", "/api/webapp/cluster", {
           tickers: c.tickers,
+          source: c.source,
           pages: Math.min(c.pages, 20),
           n_clusters: c.n_clusters,
           method: "kmeans",

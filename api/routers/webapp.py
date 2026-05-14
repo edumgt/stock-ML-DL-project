@@ -25,6 +25,7 @@ class CrawlReq(BaseModel):
 
 class ClusterReq(BaseModel):
     tickers: list[str] = Field(default=["005930", "000660", "035420", "051910", "068270"])
+    source: str = Field(default="naver", description="naver | yfinance")
     pages: int = Field(default=5, ge=1, le=20)
     n_clusters: int = Field(default=3, ge=2, le=8)
     method: str = Field(default="kmeans")
@@ -158,26 +159,48 @@ def crawl(req: CrawlReq):
     return response
 
 
+def _fetch_cluster_df(ticker: str, source: str, pages: int) -> "pd.DataFrame | None":
+    """ticker 하나의 OHLCV를 source에 따라 수집. 실패 시 None 반환."""
+    import pandas as pd
+    if source == "yfinance":
+        try:
+            import yfinance as yf
+            # pages → 대략적인 기간 매핑 (1 page ≈ 25 거래일)
+            _period_map = {1: "3mo", 2: "3mo", 5: "6mo", 10: "1y", 20: "2y"}
+            period = _period_map.get(pages, "1y") if pages <= 20 else "2y"
+            t_yf = ticker if not ticker.isdigit() else ticker + ".KS"
+            df = yf.download(t_yf, period=period, auto_adjust=True, progress=False)
+            if df.empty and not ticker.endswith(".KS"):
+                df = yf.download(ticker, period=period, auto_adjust=True, progress=False)
+            df.columns = [c[0] if isinstance(c, tuple) else c for c in df.columns]
+            df = df[["Open", "High", "Low", "Close", "Volume"]].dropna()
+            return df if not df.empty else None
+        except Exception:
+            return None
+    else:
+        try:
+            from trading.naver_crawler import NaverFinanceCrawler
+            df = NaverFinanceCrawler().get_daily_ohlcv(ticker, pages=pages)
+            return df if not df.empty else None
+        except Exception:
+            return None
+
+
 @router.post("/cluster")
 def cluster(req: ClusterReq):
     try:
-        from trading.naver_crawler import NaverFinanceCrawler
         from trading.stock_clustering import StockClusterer
     except ImportError:
         raise HTTPException(status_code=503, detail="군집화 모듈을 불러올 수 없습니다.")
 
-    crawler = NaverFinanceCrawler()
     ticker_dfs: dict[str, object] = {}
     errors: list[str] = []
     for t in req.tickers:
-        try:
-            df = crawler.get_daily_ohlcv(t, pages=req.pages)
-            if not df.empty:
-                ticker_dfs[t] = df
-            else:
-                errors.append(f"{t}: 데이터 없음")
-        except Exception:
-            errors.append(f"{t}: 수집 실패")
+        df = _fetch_cluster_df(t, req.source, req.pages)
+        if df is not None:
+            ticker_dfs[t] = df
+        else:
+            errors.append(f"{t}: 데이터 수집 실패 (source={req.source})")
 
     if len(ticker_dfs) < req.n_clusters:
         raise HTTPException(status_code=400, detail="유효 종목 수가 군집 수보다 적습니다.")
@@ -229,8 +252,12 @@ def ml_predict(req: MLPredictReq):
         "ticker": req.ticker,
         "model_type": train_result.model_type,
         "accuracy": round(train_result.accuracy, 4),
+        "cv_mean": round(train_result.cv_mean, 4),
+        "cv_std": round(train_result.cv_std, 4),
+        "cv_scores": train_result.cv_scores,
         "signal": signal,
         "probabilities": proba,
+        "feature_importance": dict(list(train_result.feature_importance.items())[:10]),
     }
     mongo_id = _save_analysis(
         {

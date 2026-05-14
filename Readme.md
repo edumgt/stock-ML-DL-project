@@ -11,6 +11,62 @@
 
 기존 `api/` 아래 FastAPI 코드는 분석 로직과 라우트 구현 재사용을 위한 레거시 호환 레이어로 남겨두었습니다.
 
+## 아키텍처 및 기술 스택
+
+```mermaid
+graph TB
+    USER(["사용자 브라우저"])
+
+    subgraph INFRA["인프라 · Docker Compose / Kubernetes"]
+        DJANGO["Django 5\n:8000\nTailwind CDN · Pretendard\n대시보드 UI 렌더링"]
+        FLASK["Flask 3\n:5000\nPydantic v2 · flask-cors\n분석 REST API"]
+
+        subgraph LOGIC["trading/ · 비즈니스 로직"]
+            CRAWLER["naver_crawler\nrequests · BeautifulSoup4\nOHLCV · stock_info · market_list"]
+            ML["ml_strategy\nscikit-learn · XGBoost\nRF · GBM · 분류 시그널"]
+            DL["dl_strategy\nLSTM (Optional TensorFlow)\n시계열 딥러닝 예측"]
+            CLUSTER["stock_clustering\nscikit-learn\nKMeans · DBSCAN 군집 분석"]
+        end
+
+        MONGO[("MongoDB 7.0\n:27017\nDB: stock_mldl\nlogin_users · crawl_data · analysis_data")]
+        AIRFLOW["Airflow 2.10\n:8080\nDAG: stock_market_pipeline\n평일 매일 18:00 배치"]
+    end
+
+    subgraph EXT["외부 데이터 소스"]
+        NF["Naver Finance\nfinance.naver.com"]
+        DF["Daum Finance\nfinance.daum.net"]
+        YF["yfinance\n(Yahoo Finance)"]
+    end
+
+    USER -->|"HTTP :8000"| DJANGO
+    DJANGO -->|"JS fetch\nFLASK_API_BASE_URL"| FLASK
+
+    FLASK -->|"crawl / cluster\nml-predict / dl-predict\nstock-forecast"| CRAWLER
+    FLASK --> ML
+    FLASK --> DL
+    FLASK --> CLUSTER
+    FLASK <-->|"GET · POST · DELETE\n/api/mongo/*"| MONGO
+
+    CRAWLER -->|"HTTP scraping"| NF
+    CRAWLER -.->|"HTTP scraping"| DF
+    ML -.->|"데이터 fallback"| YF
+    DL -.->|"데이터 fallback"| YF
+
+    AIRFLOW -->|"POST /api/webapp/crawl"| FLASK
+    AIRFLOW -->|"POST /api/webapp/ml-predict"| FLASK
+    AIRFLOW -->|"POST /api/webapp/stock-forecast"| FLASK
+```
+
+| 레이어 | 기술 | 역할 |
+|---|---|---|
+| 웹 프론트엔드 | Django 5, Tailwind CDN, Pretendard | 대시보드 UI, 템플릿 렌더링 |
+| 분석 API | Flask 3, Pydantic v2, flask-cors | 크롤링·ML·DL·군집 REST API |
+| 비즈니스 로직 | requests, BeautifulSoup4, scikit-learn, XGBoost, (TensorFlow) | 크롤러·ML·DL·군집 코어 |
+| 데이터 저장소 | MongoDB 7.0, SQLite | 사용자·크롤링·분석 결과 영속화 |
+| 배치 오케스트레이션 | Airflow 2.10 (SequentialExecutor) | 평일 일일 크롤링·예측 파이프라인 |
+| 인프라 | Docker Compose, Kubernetes (k8s/) | 컨테이너 배포·서비스 구성 |
+| 외부 데이터 | Naver Finance, Daum Finance, yfinance | 국내 주가·종목 정보 수집 |
+
 ## Run
 
 ### 1. Local Python Run
@@ -243,9 +299,21 @@ trading/
   webapp_analytics.py
 ```
 
+## Screenshots
+
+| 화면 | 설명 |
+|---|---|
+| ![메인 홈](docs/screenshots/01_main_home.png) | 초기 로드 상태 — 헤더, 상태 배지, 입력 패널 |
+| ![ML 결과](docs/screenshots/06_ml_result.png) | ML 방향 예측 — RandomForest BUY 시그널 |
+| ![DL 결과](docs/screenshots/07_dl_result.png) | DL 방향 예측 — MLP BUY 시그널 |
+| ![Forecast](docs/screenshots/08_cluster_result.png) | 내일 주가 리포트 — 예상 밴드·시나리오 |
+| ![모바일](docs/screenshots/10_mobile_view.png) | 모바일 뷰 (390px) |
+
+전체 스크린샷 목록: [docs/screenshots/](docs/screenshots/)
+
 ## Notes
 
 - MongoDB는 현재 웹앱 전체의 필수 의존성은 아닙니다.
 - Mongo가 내려가 있어도 Flask 분석 API는 가능한 범위에서 결과를 반환하고, 저장만 건너뜁니다.
 - Airflow는 공식 `apache/airflow` 이미지를 사용하며 로컬 개발용 `standalone` 모드로 실행됩니다.
-- 기존 스크린샷은 새 Django UI 기준으로 다시 캡처하는 것이 좋습니다.
+- ML·DL·Forecast 기능은 `yfinance` 소스 선택 시 Yahoo Finance 경로로 정상 동작합니다. Naver Finance 크롤링은 해당 도메인 접근이 가능한 환경에서만 수집됩니다.

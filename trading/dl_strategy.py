@@ -1,30 +1,26 @@
-"""
-LSTM 딥러닝 주가 방향성 예측 모듈 (DL Strategy)
-=================================================
-LSTM(Long Short-Term Memory) 신경망을 이용해 주가 변동 방향성을 예측합니다.
-TensorFlow/Keras 없이도 sklearn MLPClassifier 기반 폴백으로 동작합니다.
+"""LSTM / MLP 딥러닝 주가 방향성 예측 모듈.
 
-주요 클래스:
-    LSTMStrategy   – Keras LSTM 모델 (TensorFlow 필요)
-    MLPStrategy    – sklearn MLP 폴백 모델 (TensorFlow 없을 때)
-    DLStrategy     – 환경에 따라 자동 선택하는 통합 래퍼
+주요 클래스
+-----------
+LSTMStrategy   – Keras LSTM 모델 (TensorFlow 필요)
+MLPStrategy    – sklearn MLP 폴백 모델 (TensorFlow 없을 때)
+DLStrategy     – 환경에 따라 자동 선택하는 통합 래퍼
+
+학습 절차 (LSTM/MLP 공통)
+--------------------------
+1. OHLCV → 20가지 기술적 지표 산출
+2. 시계열 순서를 유지해 80/20 분할
+3. **훈련 데이터에만** StandardScaler fit → 테스트 데이터는 transform만
+4. (LSTM) seq_len 슬라이딩 윈도우 시퀀스 생성
+5. EarlyStopping(patience=5) 으로 과적합 조기 차단
 
 사용 예시::
 
     from trading.dl_strategy import DLStrategy
-    from trading.naver_crawler import NaverFinanceCrawler
-
-    crawler  = NaverFinanceCrawler()
-    df       = crawler.get_daily_ohlcv("005930", pages=30)  # 삼성전자
-
-    strategy = DLStrategy(model_type="lstm", seq_len=20, forward_days=5)
+    df = ...  # OHLCV DataFrame
+    strategy = DLStrategy(model_type="mlp", seq_len=20, forward_days=5)
     result   = strategy.train(df)
-    print(f"정확도: {result.accuracy:.4f}")
     signal   = strategy.predict(df)  # "BUY" | "SELL" | "HOLD"
-
-필요 패키지:
-    pip install scikit-learn numpy pandas
-    pip install tensorflow   # LSTM 사용 시
 """
 
 from __future__ import annotations
@@ -39,11 +35,8 @@ import numpy as np
 import pandas as pd
 
 logger = logging.getLogger(__name__)
-os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")  # TF 로그 억제
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "3")
 
-# --------------------------------------------------------------------------- #
-# 선택적 임포트
-# --------------------------------------------------------------------------- #
 try:
     import tensorflow as tf
     from tensorflow import keras  # type: ignore
@@ -62,55 +55,100 @@ except ImportError:
     _SKLEARN_OK = False
 
 
-# --------------------------------------------------------------------------- #
-# 공통 – 특성/레이블 생성
-# --------------------------------------------------------------------------- #
+# ── 공통: 기술적 지표 20개 산출 ──────────────────────────────────────────────
 
 def _build_features(df: pd.DataFrame) -> pd.DataFrame:
-    """OHLCV → 기술적 지표 특성 DataFrame 반환 (NaN 제거)"""
+    """OHLCV → 20가지 기술적 지표 DataFrame (NaN 행 제거).
+
+    지표 목록
+    ---------
+    추세  : MA5/20/60 비율
+    MACD  : MACD 라인, 시그널, 히스토그램
+    오실레이터 : RSI(14), 스토캐스틱(14,3), Williams %R(14)
+    밴드  : 볼린저 밴드 폭·위치
+    변동성 : ATR(14), 20일 롤링 표준편차
+    거래량 : Vol/MA5, Vol/MA20, OBV 변화율
+    모멘텀 : 1일·5일·20일 수익률
+    """
     close  = df["Close"].astype(float)
-    high   = df["High"].astype(float)
-    low    = df["Low"].astype(float)
-    volume = df["Volume"].astype(float)
+    high   = df["High"].astype(float) if "High" in df.columns else close
+    low    = df["Low"].astype(float) if "Low" in df.columns else close
+    volume = df["Volume"].astype(float) if "Volume" in df.columns else pd.Series(1.0, index=df.index)
     out    = df.copy()
 
+    # ── 이동평균 비율 ──────────────────────────────────────────────
     for w in [5, 20, 60]:
-        out[f"MA{w}_r"] = close / close.rolling(w).mean()
+        out[f"MA{w}_r"] = close / (close.rolling(w).mean() + 1e-9)
 
-    out["EMA12"] = close.ewm(span=12, adjust=False).mean()
-    out["EMA26"] = close.ewm(span=26, adjust=False).mean()
-    out["MACD"]  = out["EMA12"] - out["EMA26"]
+    # ── MACD (가격 정규화) ─────────────────────────────────────────
+    ema12 = close.ewm(span=12, adjust=False).mean()
+    ema26 = close.ewm(span=26, adjust=False).mean()
+    out["MACD"]   = (ema12 - ema26) / (close + 1e-9)
     out["MACD_S"] = out["MACD"].ewm(span=9, adjust=False).mean()
+    out["MACD_H"] = out["MACD"] - out["MACD_S"]
 
-    delta = close.diff()
-    gain_avg = delta.clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
-    loss_avg = (-delta).clip(lower=0).ewm(alpha=1/14, adjust=False).mean()
+    # ── RSI(14) ────────────────────────────────────────────────────
+    delta    = close.diff()
+    gain_avg = delta.clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
+    loss_avg = (-delta).clip(lower=0).ewm(alpha=1 / 14, adjust=False).mean()
     out["RSI"] = 100 - 100 / (1 + gain_avg / (loss_avg + 1e-9))
 
+    # ── 스토캐스틱 %K/%D (14, 3) ──────────────────────────────────
+    low14  = low.rolling(14).min()
+    high14 = high.rolling(14).max()
+    stoch_k    = 100 * (close - low14) / (high14 - low14 + 1e-9)
+    out["Stoch_K"] = stoch_k
+    out["Stoch_D"] = stoch_k.rolling(3).mean()
+
+    # ── Williams %R (14) ──────────────────────────────────────────
+    out["Williams_R"] = -100 * (high14 - close) / (high14 - low14 + 1e-9)
+
+    # ── 볼린저 밴드 (20, 2σ) ──────────────────────────────────────
     bb_m = close.rolling(20).mean()
     bb_s = close.rolling(20).std()
     out["BB_W"] = (4 * bb_s) / (bb_m + 1e-9)
-    out["BB_P"] = (close - (bb_m - 2*bb_s)) / (4 * bb_s + 1e-9)
+    out["BB_P"] = (close - (bb_m - 2 * bb_s)) / (4 * bb_s + 1e-9)
 
-    tr = pd.concat([high-low,
-                    (high-close.shift()).abs(),
-                    (low-close.shift()).abs()], axis=1).max(axis=1)
-    out["ATR"] = tr.rolling(14).mean()
+    # ── ATR(14) — 가격 정규화 ─────────────────────────────────────
+    tr = pd.concat(
+        [high - low,
+         (high - close.shift()).abs(),
+         (low  - close.shift()).abs()],
+        axis=1,
+    ).max(axis=1)
+    out["ATR"] = tr.rolling(14).mean() / (close + 1e-9)
 
-    out["Vol_R"]  = volume / (volume.rolling(5).mean() + 1e-9)
-    out["Ret1"]   = close.pct_change(1)
-    out["Ret5"]   = close.pct_change(5)
-    out["Vol20"]  = out["Ret1"].rolling(20).std()
+    # ── 거래량 ────────────────────────────────────────────────────
+    out["Vol_R"]      = volume / (volume.rolling(5).mean()  + 1e-9)
+    out["Vol_MA20_R"] = volume / (volume.rolling(20).mean() + 1e-9)
+    obv = (np.sign(close.diff()) * volume).cumsum()
+    out["OBV_R"] = obv.pct_change()
+
+    # ── 수익률 / 변동성 / 모멘텀 ─────────────────────────────────
+    out["Ret1"]  = close.pct_change(1)
+    out["Ret5"]  = close.pct_change(5)
+    out["Vol20"] = out["Ret1"].rolling(20).std()
+    out["Mom20"] = close.pct_change(20)
 
     return out.dropna()
 
 
-_FEAT_COLS = [
+_FEAT_COLS: list[str] = [
+    # MA 기반 추세
     "MA5_r", "MA20_r", "MA60_r",
-    "MACD", "MACD_S",
-    "RSI", "BB_W", "BB_P", "ATR",
-    "Vol_R", "Ret1", "Ret5", "Vol20",
-]
+    # MACD
+    "MACD", "MACD_S", "MACD_H",
+    # 오실레이터
+    "RSI", "Stoch_K", "Stoch_D", "Williams_R",
+    # 볼린저 밴드
+    "BB_W", "BB_P",
+    # 변동성
+    "ATR", "Vol20",
+    # 거래량
+    "Vol_R", "Vol_MA20_R", "OBV_R",
+    # 수익률 / 모멘텀
+    "Ret1", "Ret5", "Mom20",
+]  # 총 20개
 
 
 def _make_labels(close: pd.Series, fwd: int = 5, thr: float = 0.01) -> pd.Series:
@@ -121,30 +159,25 @@ def _make_labels(close: pd.Series, fwd: int = 5, thr: float = 0.01) -> pd.Series
     return lbl
 
 
-# --------------------------------------------------------------------------- #
-# 결과 모델
-# --------------------------------------------------------------------------- #
+# ── 결과 모델 ─────────────────────────────────────────────────────────────────
 
 @dataclass
 class DLResult:
     model_type: str
     accuracy: float
     report: str
-    history: dict = field(default_factory=dict)   # epoch별 loss/acc (LSTM)
+    history: dict = field(default_factory=dict)
 
 
-# --------------------------------------------------------------------------- #
-# LSTM 전략 (TensorFlow 필요)
-# --------------------------------------------------------------------------- #
+# ── LSTM 전략 (TensorFlow 필요) ───────────────────────────────────────────────
 
 class LSTMStrategy:
-    """
-    Keras LSTM 기반 방향성 예측 모델.
+    """Keras LSTM 기반 방향성 예측 모델.
 
     Parameters
     ----------
-    seq_len      : 입력 시퀀스 길이 (일, 기본 20)
-    forward_days : 예측 대상 기간 (일, 기본 5)
+    seq_len      : 입력 시퀀스 길이 (봉, 기본 20)
+    forward_days : 예측 대상 기간 (봉, 기본 5)
     threshold    : 상승/하락 판정 임계값 (기본 1%)
     """
 
@@ -162,8 +195,8 @@ class LSTMStrategy:
         self.threshold    = threshold
         self.model_dir    = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
-        self._scaler  = StandardScaler() if _SKLEARN_OK else None
-        self._model: Optional[keras.Model] = None
+        self._scaler: Optional["StandardScaler"] = StandardScaler() if _SKLEARN_OK else None
+        self._model: Optional["keras.Model"] = None
         self._trained = False
 
     def _build_model(self, n_features: int) -> "keras.Model":
@@ -194,16 +227,28 @@ class LSTMStrategy:
         feat_df = _build_features(df)
         labels  = _make_labels(feat_df["Close"], self.forward_days, self.threshold)
         valid   = feat_df.index[:-self.forward_days]
-        X       = feat_df.loc[valid, _FEAT_COLS].values
+        X_raw   = feat_df.loc[valid, _FEAT_COLS].values
         y_raw   = labels.loc[valid].values + 1  # {-1,0,1} → {0,1,2}
 
-        if _SKLEARN_OK and self._scaler:
-            X = self._scaler.fit_transform(X)
+        # ── 시퀀스 생성 (스케일링 전) ─────────────────────────────
+        Xs, ys = self._make_sequences(X_raw, y_raw)
+        if len(Xs) < 30:
+            raise ValueError("시퀀스 생성에 필요한 데이터가 부족합니다.")
 
-        Xs, ys = self._make_sequences(X, y_raw)
-        split  = int(len(Xs) * 0.8)
-        X_tr, X_te = Xs[:split], Xs[split:]
-        y_tr, y_te = ys[:split], ys[split:]
+        split = int(len(Xs) * 0.8)
+        X_tr_raw, X_te_raw = Xs[:split], Xs[split:]
+        y_tr, y_te         = ys[:split], ys[split:]
+
+        # ── 스케일링: 훈련 시퀀스에만 fit — 데이터 누수 방지 ─────────
+        if _SKLEARN_OK and self._scaler is not None:
+            n_tr, seq, feat = X_tr_raw.shape
+            n_te            = len(X_te_raw)
+            # 2D로 reshape해 fit → transform → 3D 복원
+            self._scaler.fit(X_tr_raw.reshape(-1, feat))
+            X_tr = self._scaler.transform(X_tr_raw.reshape(-1, feat)).reshape(n_tr, seq, feat)
+            X_te = self._scaler.transform(X_te_raw.reshape(-1, feat)).reshape(n_te, seq, feat)
+        else:
+            X_tr, X_te = X_tr_raw, X_te_raw
 
         self._model = self._build_model(len(_FEAT_COLS))
         cb = keras.callbacks.EarlyStopping(patience=5, restore_best_weights=True)
@@ -239,13 +284,11 @@ class LSTMStrategy:
         feat_df = _build_features(df)
         if len(feat_df) < self.seq_len:
             return "HOLD"
-        X = feat_df[_FEAT_COLS].values[-self.seq_len:]
-        if _SKLEARN_OK and self._scaler:
-            X = self._scaler.transform(X)
-        Xs = X[np.newaxis, :, :]
-        proba = self._model.predict(Xs, verbose=0)[0]
-        idx   = int(proba.argmax())
-        return ["SELL", "HOLD", "BUY"][idx]
+        X = feat_df[_FEAT_COLS].values[-self.seq_len:]  # (seq_len, n_feat)
+        if _SKLEARN_OK and self._scaler is not None:
+            X = self._scaler.transform(X)               # scaler는 2D (n, n_feat) 기준으로 fit됨
+        proba = self._model.predict(X[np.newaxis, :, :], verbose=0)[0]
+        return ["SELL", "HOLD", "BUY"][int(proba.argmax())]
 
     def predict_proba(self, df: pd.DataFrame) -> dict:
         if not self._trained or self._model is None:
@@ -254,7 +297,7 @@ class LSTMStrategy:
         if len(feat_df) < self.seq_len:
             return {"하락": 0.0, "보합": 1.0, "상승": 0.0}
         X = feat_df[_FEAT_COLS].values[-self.seq_len:]
-        if _SKLEARN_OK and self._scaler:
+        if _SKLEARN_OK and self._scaler is not None:
             X = self._scaler.transform(X)
         proba = self._model.predict(X[np.newaxis, :, :], verbose=0)[0]
         return {"하락": round(float(proba[0]), 4),
@@ -266,20 +309,19 @@ class LSTMStrategy:
             raise RuntimeError("저장할 모델 없음.")
         path = self.model_dir / filename
         self._model.save(str(path))
-        if _SKLEARN_OK and self._scaler:
+        if _SKLEARN_OK and self._scaler is not None:
             joblib.dump(self._scaler, str(path) + "_scaler.pkl")
         logger.info("LSTM 모델 저장: %s", path)
         return path
 
 
-# --------------------------------------------------------------------------- #
-# MLP 폴백 전략 (TensorFlow 없을 때)
-# --------------------------------------------------------------------------- #
+# ── MLP 폴백 전략 (TensorFlow 없을 때) ───────────────────────────────────────
 
 class MLPStrategy:
-    """
-    sklearn MLPClassifier 기반 다층 퍼셉트론 전략.
+    """sklearn MLPClassifier 기반 다층 퍼셉트론 전략.
+
     TensorFlow 없이도 동작하는 딥러닝 폴백.
+    훈련 데이터에만 StandardScaler를 fit해 데이터 누수를 방지합니다.
     """
 
     def __init__(
@@ -291,12 +333,12 @@ class MLPStrategy:
     ) -> None:
         if not _SKLEARN_OK:
             raise ImportError("pip install scikit-learn joblib 을 먼저 실행하세요.")
-        self.forward_days   = forward_days
-        self.threshold      = threshold
-        self.model_dir      = Path(model_dir)
+        self.forward_days = forward_days
+        self.threshold    = threshold
+        self.model_dir    = Path(model_dir)
         self.model_dir.mkdir(parents=True, exist_ok=True)
-        self._scaler  = StandardScaler()
-        self._model   = MLPClassifier(
+        self._scaler = StandardScaler()
+        self._model  = MLPClassifier(
             hidden_layer_sizes=hidden_layers,
             activation="relu",
             solver="adam",
@@ -314,10 +356,12 @@ class MLPStrategy:
         X = feat_df.loc[valid, _FEAT_COLS]
         y = labels.loc[valid]
 
+        # 80/20 시계열 분할
         split    = int(len(X) * 0.8)
         X_tr, X_te = X.iloc[:split], X.iloc[split:]
         y_tr, y_te = y.iloc[:split], y.iloc[split:]
 
+        # 훈련 데이터에만 fit — 테스트는 transform만
         X_tr_sc = self._scaler.fit_transform(X_tr)
         X_te_sc = self._scaler.transform(X_te)
 
@@ -340,7 +384,7 @@ class MLPStrategy:
         feat_df = _build_features(df)
         if feat_df.empty:
             return "HOLD"
-        X = self._scaler.transform(feat_df.iloc[[-1]][_FEAT_COLS])
+        X   = self._scaler.transform(feat_df.iloc[[-1]][_FEAT_COLS])
         lbl = int(self._model.predict(X)[0])
         return {1: "BUY", -1: "SELL", 0: "HOLD"}.get(lbl, "HOLD")
 
@@ -375,19 +419,16 @@ class MLPStrategy:
         return s
 
 
-# --------------------------------------------------------------------------- #
-# 통합 래퍼
-# --------------------------------------------------------------------------- #
+# ── 통합 래퍼 ─────────────────────────────────────────────────────────────────
 
 class DLStrategy:
-    """
-    LSTM(TensorFlow 필요) 또는 MLP(sklearn) 를 자동 선택하는 통합 딥러닝 전략.
+    """LSTM(TensorFlow) 또는 MLP(sklearn)를 자동 선택하는 통합 딥러닝 전략.
 
     Parameters
     ----------
-    model_type   : "lstm" | "mlp" | "auto" (자동 선택)
+    model_type   : "lstm" | "mlp" | "auto" (TensorFlow 설치 여부로 자동 결정)
     seq_len      : LSTM 시퀀스 길이 (lstm 전용, 기본 20)
-    forward_days : 예측 대상 기간 (일)
+    forward_days : 예측 대상 기간 (봉)
     threshold    : 상승/하락 임계값
     """
 
