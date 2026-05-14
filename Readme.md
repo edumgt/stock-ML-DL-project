@@ -80,6 +80,75 @@ Flask API 엔드포인트:
 - `POST /api/webapp/dl-predict`
 - `POST /api/webapp/stock-forecast`
 
+### 크롤링 데이터 실체 (실행 검증 기반)
+
+아래는 **2026-05-14 UTC 기준으로 실제 실행한 결과**입니다.
+
+- 실행 1: `trading.naver_crawler` 직접 호출
+  - `NaverFinanceCrawler().get_daily_ohlcv("005930", pages=2)`
+  - `NaverFinanceCrawler().get_stock_info("005930")`
+  - `get_market_stocks("kospi", pages=1)`
+- 실행 2: Flask API 호출
+  - `POST /api/webapp/crawl` with `{"ticker":"005930","market":"kospi","pages":2}`
+
+실행 환경에서 `finance.naver.com` DNS 해석이 불가해(네트워크 제한) 아래처럼 반환되었습니다.
+
+```json
+{
+  "ticker": "005930",
+  "pages": 2,
+  "ohlcv_rows": 0,
+  "ohlcv_columns": ["Date", "Open", "High", "Low", "Close", "Volume"],
+  "ohlcv_dtypes": {
+    "Date": "object",
+    "Open": "object",
+    "High": "object",
+    "Low": "object",
+    "Close": "object",
+    "Volume": "object"
+  },
+  "date_min": null,
+  "date_max": null,
+  "latest_ohlcv": null,
+  "stock_info": {
+    "ticker": "005930",
+    "error": "HTTPSConnectionPool(... Failed to resolve 'finance.naver.com' ...)"
+  },
+  "market_rows": 0,
+  "market_columns": ["Name", "Ticker", "Price", "Market"],
+  "market_head3": []
+}
+```
+
+Flask API 레벨에서는 동일 조건에서 다음 응답을 확인했습니다.
+
+```json
+{
+  "status": 404,
+  "body": {
+    "detail": "데이터 없음: 005930"
+  }
+}
+```
+
+즉, 이 프로젝트의 크롤링 데이터 실체는 다음과 같습니다.
+
+1. **OHLCV 기본 스키마는 고정**: `Date, Open, High, Low, Close, Volume`
+2. **정상 수집 시** `Date`는 datetime, 가격/거래량은 float으로 반환됨
+3. **수집 실패 시(네트워크/DNS 등)** 빈 DataFrame 스키마를 유지하고 행 수(`ohlcv_rows`)는 0
+4. 웹 API(`/api/webapp/crawl`)는 OHLCV가 비면 404(`데이터 없음`)를 반환
+5. `stock_info`는 실패 시 `error` 필드가 포함될 수 있음
+
+`/api/webapp/crawl` 성공 시 응답 payload 필드는 아래 구조를 사용합니다.
+
+- `ticker`: 요청 종목코드
+- `ohlcv_rows`: 수집된 일봉 행 수
+- `latest_ohlcv`: 최신 1건 (`Date, Open, High, Low, Close, Volume`)
+- `stock_info`: 종목 메타 정보 (`name, price, change, rate, fetched_at`)
+- `market`: 요청 시장(`KOSPI`/`KOSDAQ`)
+- `market_sample`: 시장 샘플 종목 배열(최대 10건)
+- `mongo_id`: Mongo 저장 성공 시에만 포함
+
 Mongo CRUD:
 
 - `GET /api/mongo/health`
