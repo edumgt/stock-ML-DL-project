@@ -96,7 +96,7 @@ Mongo CRUD:
 
 ```mermaid
 erDiagram
-    LOGIN_USERS {
+    login_users {
         ObjectId _id PK
         string username UK
         string password_hash
@@ -106,7 +106,7 @@ erDiagram
         datetime updated_at
     }
 
-    CRAWL_DATA {
+    crawl_data {
         ObjectId _id PK
         string ticker
         string market
@@ -119,7 +119,7 @@ erDiagram
         datetime updated_at
     }
 
-    ANALYSIS_DATA {
+    analysis_data {
         ObjectId _id PK
         string analysis_type
         string ticker
@@ -131,7 +131,7 @@ erDiagram
         datetime updated_at
     }
 
-    CRAWL_DATA }o--o{ ANALYSIS_DATA : "ticker/tickers (logical)"
+    crawl_data }o--o{ analysis_data : "ticker/tickers (logical)"
 ```
 
 ## Airflow
