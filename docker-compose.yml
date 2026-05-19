@@ -9,26 +9,6 @@ x-service-base:
     target: runtime
   restart: unless-stopped
 services:
-  mongo:
-    image: mongo:7.0
-    restart: unless-stopped
-    volumes:
-    - mongo_data:/data/db
-    ports:
-    - 27017:27017
-    healthcheck:
-      test:
-      - CMD
-      - mongosh
-      - --quiet
-      - --eval
-      - db.adminCommand('ping').ok
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 20s
-    networks:
-    - shared-net
   django-web:
     build: *id001
     restart: unless-stopped
@@ -59,9 +39,6 @@ services:
     - --port
     - '5000'
     - --debug
-    depends_on:
-      mongo:
-        condition: service_healthy
     environment:
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB_NAME: stock_mldl
@@ -78,7 +55,6 @@ services:
     restart: unless-stopped
     depends_on:
     - flask-api
-    - mongo
     environment:
       MONGODB_URI: mongodb://mongo:27017
       MONGODB_DB_NAME: stock_mldl
@@ -101,9 +77,6 @@ services:
       bash -lc "airflow db migrate && airflow users create --username admin --password admin --firstname Stock --lastname Admin --role Admin --email admin@example.com || true && airflow standalone"
     networks:
     - shared-net
-volumes:
-  mongo_data:
-    driver: local
 networks:
   shared-net:
-    driver: bridge
+    external: true
